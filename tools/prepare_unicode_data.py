@@ -18,8 +18,8 @@ def main():
     assert(opts.unicode_data is not None)
     assert(opts.output is not None)
 
-    f_in = open(opts.unicode_data, 'rb')
-    f_out = open(opts.output, 'wb')
+    f_in = open(opts.unicode_data, 'r')
+    f_out = open(opts.output, 'w')
     while True:
         line = f_in.readline()
         if line == '' or line == '\n':
@@ -30,14 +30,14 @@ def main():
             parts2 = line2.split(';')
             if not parts2[1].endswith('Last>'):
                 raise Exception('cannot parse range')
-            cp1 = long(parts[0], 16)
-            cp2 = long(parts2[0], 16)
+            cp1 = int(parts[0], 16)
+            cp2 = int(parts2[0], 16)
 
             tmp = parts[1:]
             tmp[0] = '-""-'
             suffix = ';'.join(tmp)
             f_out.write(line)
-            for i in xrange(cp1 + 1, cp2):
+            for i in range(cp1 + 1, cp2):
                 f_out.write('%04X;%s' % (i, suffix))
             f_out.write(line2)
         else:

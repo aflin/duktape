@@ -104,6 +104,17 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__vm_arith_add(duk_hthread *thr,
 	DUK_ASSERT_DISABLE(idx_z >= 0); /* unsigned */
 	DUK_ASSERT((duk_uint_t) idx_z < (duk_uint_t) duk_get_top(thr));
 
+#if defined(DUK_RP_USE_BIGINT)
+	/* BigInt early-exit.  When either side is a BigInt the rampart
+	 * helper handles ADD (incl. string concat with a BigInt) and
+	 * throws TypeError for mixed BigInt+Number per spec. */
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv_x) || duk_rp_tval_is_bigint(tv_y))) {
+		if (duk_rp_bigint_try_add(thr, tv_x, tv_y, (duk_idx_t) idx_z)) {
+			return;
+		}
+	}
+#endif
+
 	/*
 	 *  Fast paths
 	 */
@@ -213,6 +224,15 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__vm_arith_binary_op(duk_hthread *
 	DUK_ASSERT((duk_uint_t) idx_z < (duk_uint_t) duk_get_top(thr));
 
 	opcode_shifted = opcode >> 2; /* Get base opcode without reg/const modifiers. */
+
+#if defined(DUK_RP_USE_BIGINT)
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv_x) || duk_rp_tval_is_bigint(tv_y) ||
+	                  DUK_TVAL_IS_OBJECT(tv_x) || DUK_TVAL_IS_OBJECT(tv_y))) {
+		if (duk_rp_bigint_try_arith(thr, tv_x, tv_y, opcode & ~3, (duk_idx_t) idx_z)) {
+			return;
+		}
+	}
+#endif
 
 #if defined(DUK_USE_FASTINT)
 	if (DUK_TVAL_IS_FASTINT(tv_x) && DUK_TVAL_IS_FASTINT(tv_y)) {
@@ -383,6 +403,20 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__vm_bitwise_binary_op(duk_hthread
 
 	opcode_shifted = opcode >> 2; /* Get base opcode without reg/const modifiers. */
 
+#if defined(DUK_RP_USE_BIGINT)
+	/* Either operand a BigInt directly, OR either an object that
+	 * might coerce to BigInt via [Symbol.toPrimitive]/valueOf/toString.
+	 * The helper does the ToPrimitive and falls back (returning 0) if
+	 * neither coerces to a BigInt -- in that case continue with the
+	 * standard number-only path. */
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv_x) || duk_rp_tval_is_bigint(tv_y) ||
+	                  DUK_TVAL_IS_OBJECT(tv_x) || DUK_TVAL_IS_OBJECT(tv_y))) {
+		if (duk_rp_bigint_try_bitwise(thr, tv_x, tv_y, opcode & ~3, (duk_idx_t) idx_z)) {
+			return;
+		}
+	}
+#endif
+
 #if defined(DUK_USE_FASTINT)
 	if (DUK_TVAL_IS_FASTINT(tv_x) && DUK_TVAL_IS_FASTINT(tv_y)) {
 		i1 = (duk_int32_t) DUK_TVAL_GET_FASTINT_I32(tv_x);
@@ -502,6 +536,15 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__vm_arith_unary_op(duk_hthread *t
 
 	tv = DUK_GET_TVAL_POSIDX(thr, (duk_idx_t) idx_src);
 
+#if defined(DUK_RP_USE_BIGINT)
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv))) {
+		/* opcode 0=UNM, 2=UNP per duk_rp_bigint helper convention. */
+		if (duk_rp_bigint_try_unary(thr, tv, (opcode == DUK_OP_UNM) ? 0 : 2, (duk_idx_t) idx_dst)) {
+			return;
+		}
+	}
+#endif
+
 #if defined(DUK_USE_FASTINT)
 	if (DUK_TVAL_IS_FASTINT(tv)) {
 		duk_int64_t v1, v2;
@@ -575,6 +618,15 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__vm_bitwise_not(duk_hthread *thr,
 
 	tv = DUK_GET_TVAL_POSIDX(thr, (duk_idx_t) idx_src);
 
+#if defined(DUK_RP_USE_BIGINT)
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv))) {
+		/* opcode 1 = BNOT in the unary helper convention */
+		if (duk_rp_bigint_try_unary(thr, tv, 1, (duk_idx_t) idx_dst)) {
+			return;
+		}
+	}
+#endif
+
 #if defined(DUK_USE_FASTINT)
 	if (DUK_TVAL_IS_FASTINT(tv)) {
 		i1 = (duk_int32_t) DUK_TVAL_GET_FASTINT_I32(tv);
@@ -633,6 +685,51 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__prepost_incdec_reg_helper(duk_ht
 	DUK_ASSERT((DUK_OP_PREDECR & 0x03) == 0x01);
 	DUK_ASSERT((DUK_OP_POSTINCR & 0x03) == 0x02);
 	DUK_ASSERT((DUK_OP_POSTDECR & 0x03) == 0x03);
+
+#if defined(DUK_RP_USE_BIGINT)
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv_src))) {
+		/* Preserve offsets across stack resize. */
+		duk_size_t off_dst = (duk_size_t) ((duk_uint8_t *) tv_dst - (duk_uint8_t *) thr->valstack_bottom);
+		duk_idx_t bc = (duk_idx_t) (tv_src - thr->valstack_bottom);
+		duk_idx_t bigint_idx;
+		duk_idx_t one_idx;
+
+		/* Compute new = old +/- 1n; store in src; return old or new. */
+		duk_push_tval(thr, tv_src);
+		bigint_idx = duk_get_top_index(thr);
+		duk_rp_push_bigint_from_i64(thr, 1);
+		one_idx = duk_get_top_index(thr);
+
+		/* Push spot for the new value, do arith into it. */
+		duk_push_undefined(thr);
+		duk_rp_bigint_try_arith(thr,
+		                          duk_get_tval(thr, bigint_idx),
+		                          duk_get_tval(thr, one_idx),
+		                          (op & 0x01) ? DUK_OP_SUB : DUK_OP_ADD,
+		                          duk_get_top_index(thr));
+		/* stack: ... oldbig, 1n, newbig */
+
+		if (op & 0x02) {
+			/* post: keep old as expression result, store new in src */
+			duk_remove(thr, one_idx);  /* drop the 1n */
+			/* stack: ... oldbig, newbig */
+			duk_replace(thr, bc);      /* store new in src */
+			/* stack: ... oldbig */
+			tv_dst = (duk_tval *) (void *) (((duk_uint8_t *) thr->valstack_bottom) + off_dst);
+			duk_replace(thr, (duk_idx_t) (tv_dst - thr->valstack_bottom));
+		} else {
+			/* pre: new is the expression result and new src value */
+			duk_remove(thr, one_idx);
+			duk_remove(thr, bigint_idx);
+			/* stack top is newbig */
+			tv_dst = (duk_tval *) (void *) (((duk_uint8_t *) thr->valstack_bottom) + off_dst);
+			duk_dup_top(thr);
+			duk_replace(thr, bc);   /* store new in src */
+			duk_replace(thr, (duk_idx_t) (tv_dst - thr->valstack_bottom));
+		}
+		return;
+	}
+#endif
 
 #if defined(DUK_USE_FASTINT)
 	if (DUK_TVAL_IS_FASTINT(tv_src)) {
@@ -731,6 +828,38 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__prepost_incdec_var_helper(duk_ht
 	act = thr->callstack_curr;
 	(void) duk_js_getvar_activation(thr, act, name, 1 /*throw*/); /* -> [ ... val this ] */
 
+#if defined(DUK_RP_USE_BIGINT)
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(duk_get_tval(thr, -2)))) {
+		/* stack: [ ... bigval this ] */
+		duk_idx_t old_idx = duk_get_top_index(thr) - 1;  /* bigval */
+		duk_rp_push_bigint_from_i64(thr, 1);
+		/* stack: [ ... bigval this 1n ] */
+		duk_push_undefined(thr);
+		duk_rp_bigint_try_arith(thr,
+		                          duk_get_tval(thr, old_idx),
+		                          duk_get_tval(thr, -2),
+		                          (op & 0x01) ? DUK_OP_SUB : DUK_OP_ADD,
+		                          duk_get_top_index(thr));
+		/* stack: [ ... bigval this 1n newbig ] */
+		duk_js_putvar_activation(thr, act, name, DUK_GET_TVAL_NEGIDX(thr, -1), is_strict);
+		if (op & 0x02) {
+			/* post: result is OLD bigval */
+			duk_pop_n(thr, 3);  /* drop this, 1n, newbig */
+			/* stack top is now old bigval */
+		} else {
+			/* pre: result is NEW bigval */
+			duk_replace(thr, old_idx);  /* newbig over bigval */
+			duk_pop_2(thr);             /* drop this, 1n */
+		}
+#if defined(DUK_USE_EXEC_PREFER_SIZE)
+		duk_replace(thr, (duk_idx_t) idx_dst);
+#else
+		DUK__REPLACE_TO_TVPTR(thr, DUK_GET_TVAL_POSIDX(thr, (duk_idx_t) idx_dst));
+#endif
+		return;
+	}
+#endif
+
 	/* XXX: Fastint fast path would be useful here.  Also fastints
 	 * now lose their fastint status in current handling which is
 	 * not intuitive.
@@ -777,9 +906,22 @@ DUK_LOCAL DUK_EXEC_ALWAYS_INLINE_PERF void duk__prepost_incdec_var_helper(duk_ht
 
 #define DUK__LONGJMP_RESTART 0 /* state updated, restart bytecode execution */
 #define DUK__LONGJMP_RETHROW 1 /* exit bytecode executor by rethrowing an error to caller */
+#if defined(DUK_RP_USE_CANCEL)
+/* Rampart contribution: new code, exit bytecode executor normally
+ * (used by exec-timeout silent-unwind path via DUK_LJ_TYPE_RETURN -
+ * return value already on valstack top). */
+#define DUK__LONGJMP_FINISHED 2
+#endif
 
 #define DUK__RETHAND_RESTART  0 /* state updated, restart bytecode execution */
 #define DUK__RETHAND_FINISHED 1 /* exit bytecode execution with return value */
+
+#if defined(DUK_RP_USE_CANCEL)
+/* Rampart contribution: forward decl so the DUK_LJ_TYPE_RETURN case in
+ * duk__handle_longjmp (below) can call duk__handle_return before its
+ * definition appears later in this file. */
+DUK_LOCAL duk_small_uint_t duk__handle_return(duk_hthread *thr, duk_activation *entry_act);
+#endif
 
 /* XXX: optimize reconfig valstack operations so that resize, clamp, and setting
  * top are combined into one pass.
@@ -1470,6 +1612,65 @@ check_longjmp:
 		goto check_longjmp;
 	}
 
+#if defined(DUK_RP_USE_CANCEL)
+	/* Rampart contribution: externally-initiated RETURN unwind
+	 * (e.g. process.exit via the exec-timeout-check returning mode 2).
+	 * The exec-timeout-check sets up an LJ state of type RETURN with
+	 * the return value already on the valstack; this case drives the
+	 * unwind through any in-flight try/finally catchers and exits the
+	 * executor normally. */
+	case DUK_LJ_TYPE_RETURN: {
+		duk_small_uint_t ret_result;
+		duk_activation *cur_act;
+		duk_catcher *cat;
+		int triggers_finally = 0;
+
+		DUK_ASSERT(thr->callstack_top >= 1);
+
+		/* Pre-scan: will duk__handle_return fire a finally?  It walks
+		 * the catcher chain and triggers the first one with
+		 * FINALLY_ENABLED. */
+		cur_act = thr->callstack_curr;
+		for (cat = cur_act->cat; cat != NULL; cat = NULL) {
+			if (DUK_CAT_GET_TYPE(cat) == DUK_CAT_TYPE_TCF
+			    && DUK_CAT_HAS_FINALLY_ENABLED(cat)) {
+				triggers_finally = 1;
+			}
+			break;
+		}
+
+		duk_push_tval(thr, &thr->heap->lj.value1);
+		ret_result = duk__handle_return(thr, entry_act);
+
+#if defined(DUK_USE_EXEC_TIMEOUT_DISARM)
+		if (triggers_finally) {
+			/* Hand control to duktape's native ENDFIN->RETURN
+			 * routing; the embedder's disarm hook stops subsequent
+			 * interrupts inside the finally body from re-firing. */
+			DUK_USE_EXEC_TIMEOUT_DISARM();
+		}
+#else
+		(void) triggers_finally;
+#endif
+
+		if (ret_result == DUK__RETHAND_RESTART) {
+			retval = DUK__LONGJMP_RESTART;
+		} else {
+			DUK_ASSERT(ret_result == DUK__RETHAND_FINISHED);
+			retval = DUK__LONGJMP_FINISHED;
+		}
+		goto wipe_and_return;
+	}
+
+	case DUK_LJ_TYPE_BREAK: /* pseudotypes, not used in actual longjmps */
+	case DUK_LJ_TYPE_CONTINUE:
+	case DUK_LJ_TYPE_NORMAL:
+	default: {
+		/* should never happen, but be robust */
+		DUK_D(DUK_DPRINT("caught unknown longjmp type %ld, treat as internal error", (long) thr->heap->lj.type));
+		goto convert_to_internal_error;
+	}
+#else
 	case DUK_LJ_TYPE_BREAK: /* pseudotypes, not used in actual longjmps */
 	case DUK_LJ_TYPE_CONTINUE:
 	case DUK_LJ_TYPE_RETURN:
@@ -1479,6 +1680,7 @@ check_longjmp:
 		DUK_D(DUK_DPRINT("caught unknown longjmp type %ld, treat as internal error", (long) thr->heap->lj.type));
 		goto convert_to_internal_error;
 	}
+#endif
 
 	} /* end switch */
 
@@ -2026,6 +2228,38 @@ DUK_LOCAL DUK_EXEC_NOINLINE_PERF DUK_COLD duk_small_uint_t duk__executor_interru
 	 *  Execution timeout check
 	 */
 
+#if defined(DUK_RP_USE_CANCEL)
+	/* Rampart contribution: reworked from the upstream
+	 *   `if (CHECK(...)) throw'
+	 * pattern to dispatch on a mode value returned by the hook:
+	 *   0 - continue execution
+	 *   1 - throw RangeError("execution timeout") (upstream default)
+	 *   2 - silent unwind via DUK_LJ_TYPE_RETURN (no error)
+	 *
+	 * Mode 2 is used by process.exit() in rampart: each interrupt
+	 * unwinds one frame via the bytecode RETURN machinery (try/finally
+	 * fire, no error propagates, duk_pcall returns success at the
+	 * outermost frame).  Mode 1 keeps the upstream throw behaviour. */
+	{
+		int abort_mode = DUK_USE_EXEC_TIMEOUT_CHECK(thr->heap->heap_udata);
+		if (abort_mode != 0) {
+			thr->interrupt_init = 0;
+			thr->interrupt_counter = 0;
+			DUK_HEAP_CLEAR_INTERRUPT_RUNNING(thr->heap);
+			if (abort_mode == 2) {
+				duk_tval tv_undef;
+				DUK_D(DUK_DPRINT("execution timeout mode=2, silent unwind via DUK_LJ_TYPE_RETURN"));
+				DUK_TVAL_SET_UNDEFINED(&tv_undef);
+				duk_err_setup_ljstate1(thr, DUK_LJ_TYPE_RETURN, &tv_undef);
+				duk_err_longjmp(thr);
+				DUK_UNREACHABLE();
+			}
+			DUK_D(DUK_DPRINT("execution timeout, throwing a RangeError"));
+			DUK_ERROR_RANGE(thr, "execution timeout");
+			DUK_WO_NORETURN(return 0;);
+		}
+	}
+#else
 	if (DUK_USE_EXEC_TIMEOUT_CHECK(thr->heap->heap_udata)) {
 		/* Keep throwing an error whenever we get here.  The unusual values
 		 * are set this way because no instruction is ever executed, we just
@@ -2042,6 +2276,7 @@ DUK_LOCAL DUK_EXEC_NOINLINE_PERF DUK_COLD duk_small_uint_t duk__executor_interru
 		DUK_ERROR_RANGE(thr, "execution timeout");
 		DUK_WO_NORETURN(return 0;);
 	}
+#endif  /* DUK_RP_USE_CANCEL */
 #endif /* DUK_USE_EXEC_TIMEOUT_CHECK */
 
 #if defined(DUK_USE_DEBUGGER_SUPPORT)
@@ -2873,11 +3108,23 @@ DUK_LOCAL duk_bool_t duk__executor_handle_call(duk_hthread *thr, duk_idx_t idx, 
 	} while (0)
 #endif
 
+#if defined(DUK_RP_USE_CANCEL)
+/* Rampart contribution: return type changed from void to duk_bool_t.
+ * Returns 1 to signal the executor to exit normally (used for the
+ * DUK__LONGJMP_FINISHED silent-unwind path); 0 means continue the
+ * outer for-loop (restart the bytecode interpreter as in upstream). */
+DUK_LOCAL duk_bool_t duk__handle_executor_error(duk_heap *heap,
+                                                duk_activation *entry_act,
+                                                duk_int_t entry_call_recursion_depth,
+                                                duk_jmpbuf *entry_jmpbuf_ptr,
+                                                volatile duk_bool_t *out_delayed_catch_setup) {
+#else
 DUK_LOCAL void duk__handle_executor_error(duk_heap *heap,
                                           duk_activation *entry_act,
                                           duk_int_t entry_call_recursion_depth,
                                           duk_jmpbuf *entry_jmpbuf_ptr,
                                           volatile duk_bool_t *out_delayed_catch_setup) {
+#endif
 	duk_small_uint_t lj_ret;
 
 	/* Longjmp callers are required to sync-and-null thr->ptr_curr_pc
@@ -2912,6 +3159,18 @@ DUK_LOCAL void duk__handle_executor_error(duk_heap *heap,
 	if (lj_ret == DUK__LONGJMP_RESTART) {
 		/* Restart bytecode execution, possibly with a changed thread. */
 		DUK_REFZERO_CHECK_SLOW(heap->curr_thread);
+#if defined(DUK_RP_USE_CANCEL)
+		return 0;
+#endif
+#if defined(DUK_RP_USE_CANCEL)
+	} else if (lj_ret == DUK__LONGJMP_FINISHED) {
+		/* Rampart contribution: silent-unwind RETURN reached entry_act;
+		 * tell the outer for-loop to exit the executor as if a normal
+		 * RETURN opcode had completed.  Return value is already on
+		 * valstack top. */
+		DUK_REFZERO_CHECK_SLOW(heap->curr_thread);
+		return 1;
+#endif
 	} else {
 		/* If an error is propagated, don't run refzero checks here.
 		 * The next catcher will deal with that.  Pf_prevent_count
@@ -2925,6 +3184,9 @@ DUK_LOCAL void duk__handle_executor_error(duk_heap *heap,
 		duk_err_longjmp(heap->curr_thread);
 		DUK_UNREACHABLE();
 	}
+#if defined(DUK_RP_USE_CANCEL)
+	return 0;  /* silence "control reaches end of non-void" */
+#endif
 }
 
 /* Outer executor with setjmp/longjmp handling. */
@@ -3004,11 +3266,25 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 			DUK_DDD(DUK_DDDPRINT("longjmp caught by bytecode executor"));
 			DUK_STATS_INC(exec_thr->heap, stats_exec_throw);
 
+#if defined(DUK_RP_USE_CANCEL)
+			/* Rampart contribution: non-zero return means silent-unwind
+			 * RETURN reached entry_act; exit the executor as if a
+			 * normal RETURN had completed. */
+			if (duk__handle_executor_error(heap,
+			                               entry_act,
+			                               entry_call_recursion_depth,
+			                               entry_jmpbuf_ptr,
+			                               &delayed_catch_setup)) {
+				heap->lj.jmpbuf_ptr = entry_jmpbuf_ptr;
+				return;
+			}
+#else
 			duk__handle_executor_error(heap,
 			                           entry_act,
 			                           entry_call_recursion_depth,
 			                           entry_jmpbuf_ptr,
 			                           &delayed_catch_setup);
+#endif
 		}
 #if defined(DUK_USE_CPP_EXCEPTIONS)
 		catch (duk_fatal_exception &exc) {
@@ -3321,6 +3597,12 @@ restart_execution:
 		 * will (at least usually) omit a bounds check.
 		 */
 		op = (duk_uint8_t) DUK_DEC_OP(ins);
+#if defined(DUK_RP_USE_CANCEL)
+		/* Rampart contribution: pthread cancellation test point.
+		 * Mostly relevant on macOS where pthread_cancel-driven
+		 * interruption needs an explicit testcancel. */
+		pthread_testcancel();
+#endif
 		switch (op) {
 			/* Some useful macros.  These access inner executor variables
 			 * directly so they only apply within the executor.
@@ -3620,14 +3902,14 @@ restart_execution:
 #define DUK__SEQ_BODY(barg, carg) \
 	{ \
 		duk_bool_t tmp; \
-		tmp = duk_js_strict_equals((barg), (carg)); \
+		tmp = duk_js_strict_equals_thr(thr, (barg), (carg)); \
 		DUK_ASSERT(tmp == 0 || tmp == 1); \
 		DUK__REPLACE_BOOL_A_BREAK(tmp); \
 	}
 #define DUK__SNEQ_BODY(barg, carg) \
 	{ \
 		duk_bool_t tmp; \
-		tmp = duk_js_strict_equals((barg), (carg)); \
+		tmp = duk_js_strict_equals_thr(thr, (barg), (carg)); \
 		DUK_ASSERT(tmp == 0 || tmp == 1); \
 		tmp ^= 1; \
 		DUK__REPLACE_BOOL_A_BREAK(tmp); \
@@ -4193,6 +4475,43 @@ restart_execution:
 			DUK_UNREF(rc); /* ignore */
 			tv_obj = NULL; /* invalidated */
 			tv_key = NULL; /* invalidated */
+
+#if defined(DUK_RP_USE_BIGINT)
+			if (DUK_UNLIKELY(duk_rp_tval_is_bigint(DUK_GET_TVAL_NEGIDX(thr, -1)))) {
+				/* Stack: [..., bigval] */
+				duk_rp_push_bigint_from_i64(thr, 1);
+				/* Stack: [..., bigval, 1n] */
+				duk_push_undefined(thr);
+				duk_rp_bigint_try_arith(thr,
+				                         DUK_GET_TVAL_NEGIDX(thr, -3),
+				                         DUK_GET_TVAL_NEGIDX(thr, -2),
+				                         (ins & DUK_BC_INCDECP_FLAG_DEC) ? DUK_OP_SUB : DUK_OP_ADD,
+				                         duk_get_top_index(thr));
+				/* Stack: [..., oldbig, 1n, newbig] */
+				tv_obj = DUK__REGCONSTP_B(ins);
+				tv_key = DUK__REGCONSTP_C(ins);
+				rc = duk_hobject_putprop(thr, tv_obj, tv_key, DUK_GET_TVAL_NEGIDX(thr, -1), DUK__STRICT());
+				DUK_UNREF(rc);
+				tv_obj = NULL; tv_key = NULL;
+				if (ins & DUK_BC_INCDECP_FLAG_POST) {
+					/* result is OLD; drop 1n and new */
+					duk_pop_2(thr);
+					/* Stack top is oldbig */
+				} else {
+					/* result is NEW; remove old and 1n */
+					duk_remove(thr, -3);
+					duk_remove(thr, -2);
+				}
+#if defined(DUK_USE_EXEC_PREFER_SIZE)
+				DUK__REPLACE_TOP_A_BREAK();
+#else
+				tv_dst = DUK__REGP_A(ins);
+				DUK_TVAL_SET_TVAL_UPDREF(thr, tv_dst, DUK_GET_TVAL_NEGIDX(thr, -1));
+				duk_pop_unsafe(thr);
+				break;
+#endif
+			}
+#endif
 
 			/* XXX: Fastint fast path would be useful here.  Also fastints
 			 * now lose their fastint status in current handling which is

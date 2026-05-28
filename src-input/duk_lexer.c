@@ -1717,6 +1717,31 @@ slow_path:
 		/* XXX: better coercion */
 		(void) duk__internbuffer(lex_ctx, lex_ctx->slot1_idx);
 
+#if defined(DUK_RP_USE_BIGINT)
+		/* BigInt literal: digit sequence followed by 'n'.  Only valid
+		 * when the literal is integer-only (state remained 0; no '.',
+		 * no exponent).  Per spec, also a SyntaxError if a digit or
+		 * IdentifierStart follows the 'n', or if the literal had a
+		 * legacy-octal-like form (0-prefixed decimal). */
+		if (DUK__L0() == DUK_ASC_LC_N && state == 0) {
+			if (legacy_oct) {
+				/* Spec: `00n`, `07n`, `08n` etc. are SyntaxError.
+				 * Legacy octal / non-octal-decimal are not allowed
+				 * with BigInt suffix. */
+				goto fail_number_literal;
+			}
+			DUK__ADVANCECHARS(lex_ctx, 1);  /* consume 'n' */
+			DUK__INITBUFFER(lex_ctx);
+			if (DUK__ISDIGIT(DUK__L0()) || duk_unicode_is_identifier_start(DUK__L0())) {
+				goto fail_number_literal;
+			}
+			out_token->str1 = duk_known_hstring(lex_ctx->thr, lex_ctx->slot1_idx);
+			out_token->num = (duk_double_t) s2n_radix;  /* stash radix in num */
+			advtok = DUK__ADVTOK(0, DUK_TOK_BIGINT);
+			goto skip_slow_path;
+		}
+#endif
+
 		if (s2n_radix != 10) {
 			/* For bases other than 10, integer only. */
 			s2n_flags = DUK_S2N_FLAG_ALLOW_LEADING_ZERO;

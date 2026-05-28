@@ -27,7 +27,7 @@ def main():
     opt_defs = {}
 
     for fn in sys.argv[1:]:
-        with open(fn, 'rb') as f:
+        with open(fn, 'r') as f:
             d = f.read()
             for m in re.finditer(re_str_stridx, d):
                 str_defs[m.group(1)] = True
@@ -52,7 +52,7 @@ def main():
         'count_used_bidx_defines': len(obj_used),
         'count_duk_use_options': len(opt_used),
     }
-    print(json.dumps(doc, indent=4))
+    print((json.dumps(doc, indent=4)))
 
 if __name__ == '__main__':
     main()

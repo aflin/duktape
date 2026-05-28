@@ -52,13 +52,16 @@ import genconfig
 
 def exec_get_stdout(cmd, input=None, default=None, print_stdout=False):
     try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                universal_newlines=True)
         ret = proc.communicate(input=input)
         if print_stdout:
             sys.stdout.write(ret[0])
             sys.stdout.flush()
         if proc.returncode != 0:
-            sys.stdout.write(ret[1])  # print stderr on error
+            sys.stdout.write(ret[0])  # print stdout
+            if ret[1]:
+                sys.stdout.write(ret[1])  # print stderr on error
             sys.stdout.flush()
             if default is not None:
                 logger.info('WARNING: command %r failed, return default' % cmd)
@@ -78,8 +81,8 @@ def mkdir(path):
     os.mkdir(path)
 
 def copy_file(src, dst):
-    with open(src, 'rb') as f_in:
-        with open(dst, 'wb') as f_out:
+    with open(src, 'r') as f_in:
+        with open(dst, 'w') as f_out:
             f_out.write(f_in.read())
 
 def copy_files(filelist, srcdir, dstdir):
@@ -87,33 +90,33 @@ def copy_files(filelist, srcdir, dstdir):
         copy_file(os.path.join(srcdir, i), os.path.join(dstdir, i))
 
 def copy_and_replace(src, dst, rules):
-    # Read and write separately to allow in-place replacement
+    # Read and write separately to allow in-place replacement.
+    # Text mode under Python 3: rules dict uses str keys/values.
     keys = sorted(rules.keys())
     res = []
-    with open(src, 'rb') as f_in:
+    with open(src, 'r') as f_in:
         for line in f_in:
             for k in keys:
                 line = line.replace(k, rules[k])
             res.append(line)
-    with open(dst, 'wb') as f_out:
+    with open(dst, 'w') as f_out:
         f_out.write(''.join(res))
 
 def copy_and_cquote(src, dst):
-    with open(src, 'rb') as f_in:
-        with open(dst, 'wb') as f_out:
+    with open(src, 'r', encoding='utf-8') as f_in:
+        with open(dst, 'w') as f_out:
             f_out.write('/*\n')
             for line in f_in:
-                line = line.decode('utf-8')
                 f_out.write(' *  ')
                 for c in line:
                     if (ord(c) >= 0x20 and ord(c) <= 0x7e) or (c in '\x0a'):
-                        f_out.write(c.encode('ascii'))
+                        f_out.write(c)
                     else:
                         f_out.write('\\u%04x' % ord(c))
             f_out.write(' */\n')
 
 def read_file(src, strip_last_nl=False):
-    with open(src, 'rb') as f:
+    with open(src, 'r') as f:
         data = f.read()
         if len(data) > 0 and data[-1] == '\n':
             data = data[:-1]
@@ -149,13 +152,13 @@ def cstring(x):
 # public API and we want to avoid defining it in two places.
 def get_duk_version(apiheader_filename):
     r = re.compile(r'^#define\s+DUK_VERSION\s+(.*?)L?\s*$')
-    with open(apiheader_filename, 'rb') as f:
+    with open(apiheader_filename, 'r') as f:
         for line in f:
             m = r.match(line)
             if m is not None:
                 duk_version = int(m.group(1))
-                duk_major = duk_version / 10000
-                duk_minor = (duk_version % 10000) / 100
+                duk_major = duk_version // 10000
+                duk_minor = (duk_version % 10000) // 100
                 duk_patch = duk_version % 100
                 duk_version_formatted = '%d.%d.%d' % (duk_major, duk_minor, duk_patch)
                 return duk_version, duk_major, duk_minor, duk_patch, duk_version_formatted
@@ -180,7 +183,7 @@ def main():
         force_options_yaml.append(value)
     def add_force_option_file(option, opt, value, parser):
         # XXX: check that YAML parses
-        with open(value, 'rb') as f:
+        with open(value, 'r') as f:
             force_options_yaml.append(f.read())
     def add_force_option_define(option, opt, value, parser):
         tmp = value.split('=')
@@ -199,15 +202,9 @@ def main():
             raise Exception('invalid option value: %r' % value)
         force_options_yaml.append(yaml.safe_dump(doc))
 
-    fixup_header_lines = []
-    def add_fixup_header_line(option, opt, value, parser):
-        fixup_header_lines.append(value)
-    def add_fixup_header_file(option, opt, value, parser):
-        with open(value, 'rb') as f:
-            for line in f:
-                if line[-1] == '\n':
-                    line = line[:-1]
-                fixup_header_lines.append(line)
+    # Note: --fixup-file / --fixup-line options live in genconfig.py
+    # (added via add_genconfig_optparse_options below) and populate
+    # opts.fixup_header_lines.
 
     # Options for configure.py tool itself.
     parser.add_option('--source-directory', dest='source_directory', default=None, help='Directory with raw input sources (defaulted based on configure.py script path)')
@@ -235,6 +232,12 @@ def main():
 
     # Options forwarded to genconfig.py.
     genconfig.add_genconfig_optparse_options(parser)
+
+    # Rampart contribution: opt out of the auto-applied util/rp_config.h
+    # fixup.  Use this when building a vanilla upstream duktape that
+    # ignores the DUK_RP_* feature flag set.
+    parser.add_option('--no-rp-config', dest='no_rp_config', action='store_true', default=False,
+                      help='Do not auto-apply util/rp_config.h as a default fixup file')
 
     # Log level options.
     parser.add_option('--quiet', dest='quiet', action='store_true', default=False, help='Suppress info messages (show warnings)')
@@ -276,8 +279,14 @@ def main():
                 return cand
         raise Exception('no ' + optname + ' and cannot default based on script path')
 
+    # Rampart contribution: if --output-directory wasn't given, default
+    # to <repo>/build (created if missing) so a bare
+    # `python3 tools/configure.py` writes the three outputs
+    # (duktape.c, duktape.h, duk_config.h) into a dedicated build
+    # directory.  build/ is in .gitignore.
     if opts.output_directory is None:
-        raise Exception('missing --output-directory')
+        opts.output_directory = os.path.abspath(os.path.join(script_path, '..', 'build'))
+        logger.debug('defaulting --output-directory to ' + opts.output_directory)
     opts.output_directory = os.path.abspath(opts.output_directory)
     outdir = opts.output_directory
 
@@ -292,9 +301,36 @@ def main():
     opts.authors_file = default_from_script_path('--authors-file', opts.authors_file, [ 'AUTHORS.rst' ])
     authors_file = opts.authors_file
 
+    # Rampart contribution: if util/rp_config.h exists at the canonical
+    # location (script_path/../util/rp_config.h) AND the user didn't
+    # disable it via --no-rp-config, prepend its contents to
+    # opts.fixup_header_lines (the list populated by genconfig's
+    # --fixup-file callback).  This makes --fixup-file optional: just
+    # running `configure.py --output-directory <dir>` produces a
+    # duk_config.h with the DUK_RP_* feature flag system wired in.
+    # Explicit --fixup-file / --fixup-line arguments still apply, and
+    # accumulate after the default (so user fixups can override).
+    if not getattr(opts, 'no_rp_config', False):
+        rp_cfg_cand = os.path.abspath(os.path.join(script_path, '..', 'util', 'rp_config.h'))
+        if os.path.exists(rp_cfg_cand):
+            _default_lines = []
+            with open(rp_cfg_cand, 'r') as f:
+                for line in f:
+                    if line.endswith('\n'):
+                        line = line[:-1]
+                    _default_lines.append(line)
+            # opts.fixup_header_lines may be None if no --fixup-file/
+            # --fixup-line was passed (optparse default).  Coerce to a
+            # mutable list so we can prepend.
+            existing = opts.fixup_header_lines or []
+            opts.fixup_header_lines = _default_lines + list(existing)
+            logger.debug('default fixup applied from ' + rp_cfg_cand
+                         + ' (' + str(len(_default_lines)) + ' lines); '
+                         + 'disable with --no-rp-config')
+
     duk_dist_meta = None
     if opts.duk_dist_meta is not None:
-        with open(opts.duk_dist_meta, 'rb') as f:
+        with open(opts.duk_dist_meta, 'r') as f:
             duk_dist_meta = json.loads(f.read())
 
     duk_version, duk_major, duk_minor, duk_patch, duk_version_formatted = \
@@ -518,8 +554,113 @@ def main():
         'duk_selftest.h',
         'duk_strings.h',
         'duk_replacements.c',
-        'duk_replacements.h'
+        'duk_replacements.h',
+        # rampart contributions (post duktape 2.7.0).  Each .c is gated
+        # by a DUK_RP_USE_* flag declared in util/rp_config.h (appended
+        # to duk_config.h via --fixup-file).  When all flags are off
+        # the .c bodies are #if'd out and contribute nothing.
+        'duk_rp_internal.h',         # shared helpers (RP_THROW etc.)
+        'duk_rp_extensions_init.c',  # stitcher: duk_rp_install_extensions()
+        'duk_rp_promise.c',          # DUK_RP_USE_PROMISE
+        'duk_rp_scope_vars.c',       # DUK_RP_USE_SCOPE_VARS
+        'duk_rp_map_set.c',          # DUK_RP_USE_MAP_SET
+        'duk_rp_buffer_extras.c',    # DUK_RP_USE_BUFFER_EXTRAS
+        'duk_rp_textencoding.c',     # DUK_RP_USE_TEXTENCODING
+        'duk_rp_blob.c',             # DUK_RP_USE_BLOB
+        'duk_rp_console_extended.c', # DUK_RP_USE_CONSOLE_EXTENDED
+        'duk_rp_array_iter.c',       # DUK_RP_USE_ARRAY_ITER
+        'duk_rp_string_iter.c',      # DUK_RP_USE_STRING_ITER
+        'duk_rp_async_iter_symbol.c',# DUK_RP_USE_ASYNC_ITER_SYMBOL
+        'duk_rp_proxy_revocable.c',  # DUK_RP_USE_PROXY_REVOCABLE
+        'duk_rp_modern_polyfills.c', # DUK_RP_USE_MODERN_POLYFILLS
+        'duk_rp_object_values_entries.c', # DUK_RP_USE_OBJECT_VALUES_ENTRIES
+        'duk_rp_array_extras.c',     # DUK_RP_USE_ARRAY_EXTRAS
+        'duk_rp_string_extras.c',    # DUK_RP_USE_STRING_EXTRAS
+        'duk_rp_object_extras.c',    # DUK_RP_USE_OBJECT_EXTRAS
+        'duk_rp_bigint.c'            # DUK_RP_USE_BIGINT (JS-visible BigInt)
     ], srcdir, os.path.join(tempdir, 'src'))
+
+    # Stage the vendored libtommath subset.  Lives in src-input/tommath/
+    # as a self-contained directory (LICENSE + 5 headers + 131 bn_*.c).
+    # We copy it into tempdir/src/tommath/ -- a SUBDIR, intentionally:
+    # select_combined_sources() globs only tempdir/src/*.c flat, so the
+    # bn_*.c don't become top-level translation units.  They get pulled
+    # in via duk_rp_bigint_tommath.c (auto-generated below) as a unity
+    # build gated by DUK_RP_USE_BIGINT.
+    tommath_src = os.path.join(srcdir, 'tommath')
+    tommath_dst = os.path.join(tempdir, 'src', 'tommath')
+    if os.path.isdir(tommath_src):
+        if not os.path.isdir(tommath_dst):
+            os.makedirs(tommath_dst)
+        tommath_c_files = []
+        for fn in sorted(os.listdir(tommath_src)):
+            ext = os.path.splitext(fn)[1]
+            if ext not in ('.c', '.h'):
+                continue
+            # tommath_class.h is REPLACED below with a flat
+            # always-define-every-kept-BN_*_C header.  Skip the
+            # upstream copy; see comment below.
+            if fn == 'tommath_class.h':
+                continue
+            # Only bn_*.c are individual symbol-bearing files.  Any
+            # other .c (e.g. an mpi.c amalgamation left over from a
+            # `perl gen.pl` test) would cause double-definitions when
+            # unity-included alongside the bn_*.c set.
+            if ext == '.c' and not fn.startswith('bn_'):
+                continue
+            copy_file(os.path.join(tommath_src, fn),
+                      os.path.join(tommath_dst, fn))
+            if ext == '.c':
+                tommath_c_files.append(fn)
+
+        # Replacement tommath_class.h.
+        #
+        # Why we replace: libtommath's stock tommath_class.h drives a
+        # 3-pass recursive self-include that combine_src.py treats as
+        # a duplicate and suppresses, breaking the SC_* dependency-
+        # resolution mechanism.  We already manually pruned the .c
+        # file set (see gen-rename.sh's trim pattern), so we don't
+        # need automatic SC_*-driven pruning -- a flat "define every
+        # BN_*_C" header is functionally equivalent for our subset.
+        # Each macro name is derived from a filename:
+        #   bn_mp_2expt.c    -> BN_MP_2EXPT_C
+        #   bn_s_mp_add.c    -> BN_S_MP_ADD_C
+        #   bn_cutoffs.c     -> BN_CUTOFFS_C
+        # Regenerated each build to track .c file changes.
+        class_h_path = os.path.join(tommath_dst, 'tommath_class.h')
+        with open(class_h_path, 'w') as f:
+            f.write('/* tommath_class.h -- AUTOGENERATED by configure.py.\n')
+            f.write(' *\n')
+            f.write(' * Replaces libtommath\'s recursive 3-pass dependency-resolution\n')
+            f.write(' * file with a flat "define every kept BN_*_C" header.  See\n')
+            f.write(' * configure.py for rationale.  Do not edit by hand.\n')
+            f.write(' */\n')
+            f.write('#ifndef TOMMATH_CLASS_H_\n')
+            f.write('#define TOMMATH_CLASS_H_\n')
+            for c in tommath_c_files:
+                base = os.path.splitext(c)[0]            # bn_mp_init
+                macro = base.upper() + '_C'              # BN_MP_INIT_C
+                f.write('#define %s\n' % macro)
+            f.write('#endif  /* TOMMATH_CLASS_H_ */\n')
+
+        # Auto-generate the unity-include wrapper.  Every bn_*.c lives in
+        # the subdir; pulling them all into one translation unit avoids
+        # adding 131 entries to select_combined_sources and keeps the
+        # DUK_RP_USE_BIGINT gate in one place.
+        unity_path = os.path.join(tempdir, 'src', 'duk_rp_bigint_tommath.c')
+        with open(unity_path, 'w') as f:
+            f.write('/*\n')
+            f.write(' * duk_rp_bigint_tommath.c -- AUTOGENERATED by configure.py.\n')
+            f.write(' *\n')
+            f.write(' * Unity-build of the vendored libtommath subset.  Gated by\n')
+            f.write(' * DUK_RP_USE_BIGINT.  When the flag is off this file compiles\n')
+            f.write(' * to nothing.  Do not edit by hand -- regenerated each build.\n')
+            f.write(' */\n')
+            f.write('#include "duk_internal.h"\n')
+            f.write('#if defined(DUK_RP_USE_BIGINT)\n')
+            for c in tommath_c_files:
+                f.write('#include "tommath/%s"\n' % c)
+            f.write('#endif  /* DUK_RP_USE_BIGINT */\n')
 
     # Build temp versions of LICENSE.txt and AUTHORS.rst for embedding into
     # autogenerated C/H files.
@@ -536,7 +677,7 @@ def main():
       + glob.glob(os.path.join(srcdir, '*.h')) \
       + glob.glob(os.path.join(srcdir, '*.h.in'))
     )
-    with open(os.path.join(tempdir, 'duk_used_stridx_bidx_defs.json.tmp'), 'wb') as f:
+    with open(os.path.join(tempdir, 'duk_used_stridx_bidx_defs.json.tmp'), 'w') as f:
         f.write(res)
 
     # Create a duk_config.h.
@@ -574,9 +715,9 @@ def main():
             # excessively large commands.
             for idx,i in enumerate(opts.force_options_yaml):
                 tmpfn = os.path.join(tempdir, 'genconfig%d.yaml' % idx)
-                with open(tmpfn, 'wb') as f:
+                with open(tmpfn, 'w') as f:
                     f.write(i)
-                with open(tmpfn, 'rb') as f:
+                with open(tmpfn, 'r') as f:
                     logger.debug(f.read())
                 res += [ '--option-file', tmpfn ]
         for i in opts.fixup_header_lines:
@@ -751,7 +892,7 @@ def main():
             '--out-header', os.path.join(tempdir, 'duk_unicode_%s.h.tmp' % suffix),
             '--table-name', 'duk_unicode_%s' % suffix
         ])
-        with open(os.path.join(tempdir, suffix + '.txt'), 'wb') as f:
+        with open(os.path.join(tempdir, suffix + '.txt'), 'w') as f:
             f.write(res)
 
     def extract_caseconv():
@@ -767,7 +908,7 @@ def main():
             '--table-name-lc', 'duk_unicode_caseconv_lc',
             '--table-name-uc', 'duk_unicode_caseconv_uc'
         ])
-        with open(os.path.join(tempdir, 'caseconv.txt'), 'wb') as f:
+        with open(os.path.join(tempdir, 'caseconv.txt'), 'w') as f:
             f.write(res)
 
         logger.debug('- extract_caseconv canon lookup')
@@ -781,7 +922,7 @@ def main():
             '--out-header', os.path.join(tempdir, 'duk_unicode_re_canon_lookup.h.tmp'),
             '--table-name-re-canon-lookup', 'duk_unicode_re_canon_lookup'
         ])
-        with open(os.path.join(tempdir, 'caseconv_re_canon_lookup.txt'), 'wb') as f:
+        with open(os.path.join(tempdir, 'caseconv_re_canon_lookup.txt'), 'w') as f:
             f.write(res)
 
         logger.debug('- extract_caseconv canon bitmap')
@@ -795,7 +936,7 @@ def main():
             '--out-header', os.path.join(tempdir, 'duk_unicode_re_canon_bitmap.h.tmp'),
             '--table-name-re-canon-bitmap', 'duk_unicode_re_canon_bitmap'
         ])
-        with open(os.path.join(tempdir, 'caseconv_re_canon_bitmap.txt'), 'wb') as f:
+        with open(os.path.join(tempdir, 'caseconv_re_canon_bitmap.txt'), 'w') as f:
             f.write(res)
 
     # XXX: Now with configure.py part of the distributable, could generate
@@ -891,12 +1032,12 @@ def main():
         # included and are up-to-date.
 
         res.append('/* LICENSE.txt */')
-        with open(license_file, 'rb') as f:
+        with open(license_file, 'r') as f:
             for line in f:
                 res.append(line.strip())
         res.append('')
         res.append('/* AUTHORS.rst */')
-        with open(authors_file, 'rb') as f:
+        with open(authors_file, 'r') as f:
             for line in f:
                 res.append(line.strip())
 
@@ -931,7 +1072,7 @@ def main():
                 continue
             files.append(fn)
 
-        res = map(lambda x: os.path.join(tempdir, 'src', x), files)
+        res = [os.path.join(tempdir, 'src', x) for x in files]
         logger.debug(repr(files))
         logger.debug(repr(res))
         return res
@@ -940,13 +1081,16 @@ def main():
         for fn in os.listdir(os.path.join(tempdir, 'src')):
             copy_file(os.path.join(tempdir, 'src', fn), os.path.join(outdir, fn))
     else:
-        with open(os.path.join(tempdir, 'prologue.tmp'), 'wb') as f:
+        with open(os.path.join(tempdir, 'prologue.tmp'), 'w') as f:
             f.write(create_source_prologue(os.path.join(tempdir, 'LICENSE.txt.tmp'), os.path.join(tempdir, 'AUTHORS.rst.tmp')))
 
         cmd = [
             sys.executable,
             os.path.join(script_path, 'combine_src.py'),
             '--include-path', os.path.join(tempdir, 'src'),
+            # tommath internals do `#include "tommath_private.h"` etc.
+            # without a directory prefix; resolve those from the subdir.
+            '--include-path', os.path.join(tempdir, 'src', 'tommath'),
             '--include-exclude', 'duk_config.h',  # don't inline
             '--include-exclude', 'duktape.h',     # don't inline
             '--prologue', os.path.join(tempdir, 'prologue.tmp'),
@@ -970,19 +1114,19 @@ def main():
         'duk_version': duk_version,
         'duk_version_string': duk_version_formatted
     }
-    with open(os.path.join(tempdir, 'genbuiltins_metadata.json'), 'rb') as f:
+    with open(os.path.join(tempdir, 'genbuiltins_metadata.json'), 'r') as f:
         tmp = json.loads(f.read())
-        for k in tmp.keys():
+        for k in list(tmp.keys()):
             doc[k] = tmp[k]
     if opts.separate_sources:
         pass
     else:
-        with open(os.path.join(tempdir, 'combine_src_metadata.json'), 'rb') as f:
+        with open(os.path.join(tempdir, 'combine_src_metadata.json'), 'r') as f:
             tmp = json.loads(f.read())
-            for k in tmp.keys():
+            for k in list(tmp.keys()):
                 doc[k] = tmp[k]
 
-    with open(os.path.join(outdir, 'duk_source_meta.json'), 'wb') as f:
+    with open(os.path.join(outdir, 'duk_source_meta.json'), 'w') as f:
         f.write(json.dumps(doc, indent=4))
 
     logger.debug('Configure finished successfully')

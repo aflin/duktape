@@ -1,0 +1,25 @@
+define: DUK_USE_EXEC_TIMEOUT_DISARM
+introduced: 2.7.0-rampart
+requires:
+  - DUK_USE_EXEC_TIMEOUT_CHECK
+default: false
+tags:
+  - execution
+  - sandbox
+  - experimental
+description: >
+  Rampart contribution.  Companion to DUK_USE_EXEC_TIMEOUT_CHECK.
+
+  When the timeout check returns 2 (silent unwind via DUK_LJ_TYPE_RETURN),
+  Duktape's RETURN handler in duk__handle_longjmp invokes this no-arg
+  macro after determining that an in-flight try/finally catcher will
+  execute next.  The embedder's macro implementation should disarm the
+  pending cancel so subsequent bytecode interrupts inside the finally
+  body do not re-fire (which would prevent the finally from running to
+  completion).
+
+  Used by rampart's process.exit() path: the timeout check returns 2,
+  the DUK_LJ_TYPE_RETURN unwind starts, the finally body fires, this
+  macro is called to disarm, the finally body completes, the executor
+  exits normally with the return value already on top of the value
+  stack.

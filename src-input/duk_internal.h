@@ -74,4 +74,22 @@
 #include "duk_bi_protos.h"
 #include "duk_selftest.h"
 
+#if defined(DUK_RP_USE_BIGINT)
+/* Forward declarations for the BigInt operator-dispatch helpers
+ * implemented in duk_rp_bigint.c.  These are called from the core
+ * executor and duk_js_ops.c at the top of arith/bitwise/compare/
+ * equals/unary paths to short-circuit BigInt cases. */
+DUK_INTERNAL_DECL duk_bool_t duk_rp_tval_is_bigint(duk_tval *tv);
+/* Note: duk_rp_is_bigint, duk_rp_push_bigint_{from_i64,from_double,
+ *   from_string,to_string}, and duk_rp_bigint_to_double are publicly
+ *   declared in duktape.h (DUK_EXTERNAL_DECL) when DUK_RP_USE_BIGINT
+ *   is on -- callable from both internal duktape code and embedders. */
+DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_add(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, duk_idx_t idx_z);
+DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_arith(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, duk_uint_t opcode, duk_idx_t idx_z);
+DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_bitwise(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, duk_uint_t opcode, duk_idx_t idx_z);
+DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_compare(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, int *out_ord);
+DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_equals(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, duk_bool_t strict, duk_bool_t *out_eq);
+DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_unary(duk_hthread *thr, duk_tval *tv_x, duk_uint_t opcode, duk_idx_t idx_z);
+#endif  /* DUK_RP_USE_BIGINT */
+
 #endif /* DUK_INTERNAL_H_INCLUDED */

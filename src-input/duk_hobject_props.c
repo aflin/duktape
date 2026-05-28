@@ -2778,7 +2778,7 @@ DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, 
 					datadesc_reject = !(desc.flags & DUK_PROPDESC_FLAG_ACCESSOR) &&
 					                  !(desc.flags & DUK_PROPDESC_FLAG_CONFIGURABLE) &&
 					                  !(desc.flags & DUK_PROPDESC_FLAG_WRITABLE) &&
-					                  !duk_js_samevalue(tv_hook, tv_targ);
+					                  !duk_js_samevalue_thr(thr, tv_hook, tv_targ);
 					accdesc_reject = (desc.flags & DUK_PROPDESC_FLAG_ACCESSOR) &&
 					                 !(desc.flags & DUK_PROPDESC_FLAG_CONFIGURABLE) && (desc.get == NULL) &&
 					                 !DUK_TVAL_IS_UNDEFINED(tv_hook);
@@ -3783,7 +3783,7 @@ duk_hobject_putprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_tv
 					datadesc_reject = !(desc.flags & DUK_PROPDESC_FLAG_ACCESSOR) &&
 					                  !(desc.flags & DUK_PROPDESC_FLAG_CONFIGURABLE) &&
 					                  !(desc.flags & DUK_PROPDESC_FLAG_WRITABLE) &&
-					                  !duk_js_samevalue(tv_val, tv_targ);
+					                  !duk_js_samevalue_thr(thr, tv_val, tv_targ);
 					accdesc_reject = (desc.flags & DUK_PROPDESC_FLAG_ACCESSOR) &&
 					                 !(desc.flags & DUK_PROPDESC_FLAG_CONFIGURABLE) && (desc.set == NULL);
 					if (datadesc_reject || accdesc_reject) {
@@ -5659,7 +5659,7 @@ skip_array_exotic:
 
 		tmp1 = duk_require_tval(thr, -1); /* curr value */
 		tmp2 = duk_require_tval(thr, idx_value); /* new value */
-		if (!duk_js_samevalue(tmp1, tmp2)) {
+		if (!duk_js_samevalue_thr(thr, tmp1, tmp2)) {
 			goto need_check;
 		}
 	}
@@ -5856,7 +5856,7 @@ need_check:
 				if (!(curr.flags & DUK_PROPDESC_FLAG_WRITABLE) && has_value) {
 					duk_tval *tmp1 = duk_require_tval(thr, -1); /* curr value */
 					duk_tval *tmp2 = duk_require_tval(thr, idx_value); /* new value */
-					if (!duk_js_samevalue(tmp1, tmp2)) {
+					if (!duk_js_samevalue_thr(thr, tmp1, tmp2)) {
 						goto fail_not_configurable;
 					}
 				}

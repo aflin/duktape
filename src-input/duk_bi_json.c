@@ -2176,6 +2176,13 @@ DUK_LOCAL duk_bool_t duk__json_enc_value(duk_json_enc_ctx *js_ctx, duk_idx_t idx
 		 */
 		DUK_ASSERT(!DUK_HOBJECT_IS_CALLABLE(h));
 
+#if defined(DUK_RP_USE_BIGINT)
+		if (DUK_UNLIKELY(DUK_HOBJECT_GET_CLASS_NUMBER(h) == DUK_HOBJECT_CLASS_BIGINT)) {
+			DUK_ERROR_TYPE(js_ctx->thr, "Do not know how to serialize a BigInt");
+			DUK_WO_NORETURN(return;);
+		}
+#endif
+
 		if (duk_js_isarray_hobject(h)) {
 			duk__json_enc_array(js_ctx);
 		} else {
@@ -2337,6 +2344,15 @@ DUK_LOCAL duk_bool_t duk__json_stringify_fast_value(duk_json_enc_ctx *js_ctx, du
 		duk_tval *tv_val;
 		duk_bool_t emitted = 0;
 		duk_uint32_t c_bit, c_all, c_array, c_unbox, c_undef, c_func, c_bufobj, c_object, c_abort;
+
+#if defined(DUK_RP_USE_BIGINT)
+		/* Spec: JSON.stringify on a BigInt throws TypeError.  Detect
+		 * via class slot to avoid an extra prop lookup. */
+		if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv))) {
+			DUK_ERROR_TYPE(js_ctx->thr, "Do not know how to serialize a BigInt");
+			DUK_WO_NORETURN(return 0;);
+		}
+#endif
 
 		/* For objects JSON.stringify() only looks for own, enumerable
 		 * properties which is nice for the fast path here.

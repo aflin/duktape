@@ -30,11 +30,11 @@ class UnicodeData:
 
     def __init__(self, filename):
         self.data = self.read_unicode_data(filename)
-        print('read %d unicode data entries' % len(self.data))
+        print(('read %d unicode data entries' % len(self.data)))
 
     def read_unicode_data(self, filename):
         res = []
-        f = open(filename, 'rb')
+        f = open(filename, 'r')
         for line in f:
             if line.startswith('#'):
                 continue
@@ -48,10 +48,7 @@ class UnicodeData:
         f.close()
 
         # Sort based on Unicode codepoint.
-        def mycmp(a,b):
-            return cmp(long(a[0], 16), long(b[0], 16))
-
-        res.sort(cmp=mycmp)
+        res.sort(key=lambda a: int(a[0], 16))
         return res
 
 class SpecialCasing:
@@ -59,11 +56,11 @@ class SpecialCasing:
 
     def __init__(self, filename):
         self.data = self.read_special_casing_data(filename)
-        print('read %d special casing entries' % len(self.data))
+        print(('read %d special casing entries' % len(self.data)))
 
     def read_special_casing_data(self, filename):
         res = []
-        f = open(filename, 'rb')
+        f = open(filename, 'r')
         for line in f:
             try:
                 idx = line.index('#')
@@ -88,7 +85,7 @@ def parse_unicode_sequence(x):
         i = i.strip()
         if i == '':
             continue
-        res += unichr(long(i, 16))
+        res += chr(int(i, 16))
     return res
 
 def get_base_conversion_maps(unicode_data):
@@ -99,7 +96,7 @@ def get_base_conversion_maps(unicode_data):
     tc = {}        # titlecase
 
     for x in unicode_data.data:
-        c1 = long(x[0], 16)
+        c1 = int(x[0], 16)
 
         # just 16-bit support needed
         if c1 >= 0x10000:
@@ -125,7 +122,7 @@ def update_special_casings(uc, lc, tc, special_casing):
     """Update case conversion tables with special case conversion rules."""
 
     for x in special_casing.data:
-        c1 = long(x[0], 16)
+        c1 = int(x[0], 16)
 
         if x[4] != '':
             # conditions
@@ -142,20 +139,20 @@ def update_special_casings(uc, lc, tc, special_casing):
         if len(title) > 1:
             tc[c1] = title
 
-        print('- special case: %d %d %d' % (len(lower), len(upper), len(title)))
+        print(('- special case: %d %d %d' % (len(lower), len(upper), len(title))))
 
 def remove_ascii_part(convmap):
     """Remove ASCII case conversion parts (handled by C fast path)."""
 
-    for i in xrange(128):
-        if convmap.has_key(i):
+    for i in range(128):
+        if i in convmap:
             del convmap[i]
 
 def scan_range_with_skip(convmap, start_idx, skip):
     """Scan for a range of continuous case conversion with a certain 'skip'."""
 
     conv_i = start_idx
-    if not convmap.has_key(conv_i):
+    if conv_i not in convmap:
         return None, None, None
     elif len(convmap[conv_i]) > 1:
         return None, None, None
@@ -169,7 +166,7 @@ def scan_range_with_skip(convmap, start_idx, skip):
         new_i = conv_i + skip
         new_o = conv_o + skip
 
-        if not convmap.has_key(new_i):
+        if new_i not in convmap:
             break
         if len(convmap[new_i]) > 1:
             break
@@ -180,12 +177,12 @@ def scan_range_with_skip(convmap, start_idx, skip):
         conv_o = new_o
 
     # [start_i,conv_i] maps to [start_o,conv_o], ignore ranges of 1 char.
-    count = (conv_i - start_i) / skip + 1
+    count = (conv_i - start_i) // skip + 1
     if count <= 1:
         return None, None, None
 
     # We have an acceptable range, remove them from the convmap here.
-    for i in xrange(start_i, conv_i + skip, skip):
+    for i in range(start_i, conv_i + skip, skip):
         del convmap[i]
 
     return start_i, start_o, count
@@ -193,7 +190,7 @@ def scan_range_with_skip(convmap, start_idx, skip):
 def find_first_range_with_skip(convmap, skip):
     """Find first range with a certain 'skip' value."""
 
-    for i in xrange(65536):
+    for i in range(65536):
         start_i, start_o, count = scan_range_with_skip(convmap, i, skip)
         if start_i is None:
             continue
@@ -225,17 +222,17 @@ def generate_caseconv_tables(convmap):
 
     # Ranges with skips
 
-    for skip in xrange(1,6+1):    # skips 1...6 are useful
+    for skip in range(1,6+1):    # skips 1...6 are useful
         while True:
             start_i, start_o, count = find_first_range_with_skip(convmap, skip)
             if start_i is None:
                 break
-            print('- skip %d: %d %d %d' % (skip, start_i, start_o, count))
+            print(('- skip %d: %d %d %d' % (skip, start_i, start_o, count)))
             ranges.append([start_i, start_o, count, skip])
 
     # 1:1 conversions
 
-    k = convmap.keys()
+    k = list(convmap.keys())
     k.sort()
     for i in k:
         if len(convmap[i]) > 1:
@@ -277,22 +274,22 @@ def generate_caseconv_tables(convmap):
 
     # 1:n conversions
 
-    k = convmap.keys()
+    k = list(convmap.keys())
     k.sort()
     for i in k:
         multis.append([i, convmap[i]])        # codepoint, string
         del convmap[i]
 
     for t in singles:
-        print '- singles: ' + repr(t)
+        print('- singles: ' + repr(t))
 
     for t in multis:
-        print '- multis: ' + repr(t)
+        print('- multis: ' + repr(t))
 
-    print '- range mappings: %d' % len(ranges)
-    print '- single character mappings: %d' % len(singles)
-    print '- complex mappings (1:n): %d' % len(multis)
-    print '- remaining (should be zero): %d' % len(convmap.keys())
+    print('- range mappings: %d' % len(ranges))
+    print('- single character mappings: %d' % len(singles))
+    print('- complex mappings (1:n): %d' % len(multis))
+    print('- remaining (should be zero): %d' % len(list(convmap.keys())))
 
     # XXX: opportunities for diff encoding skip=3 ranges?
     prev = None
@@ -301,16 +298,16 @@ def generate_caseconv_tables(convmap):
         if t[3] != 3:
             continue
         if prev is not None:
-            print '- %d %d' % (t[0] - prev[0], t[1] - prev[1])
+            print('- %d %d' % (t[0] - prev[0], t[1] - prev[1]))
         else:
-            print '- start: %d %d' % (t[0], t[1])
+            print('- start: %d %d' % (t[0], t[1]))
         prev = t
 
     # Bit packed encoding.
 
     be = dukutil.BitEncoder()
 
-    for curr_skip in xrange(1, 7):    # 1...6
+    for curr_skip in range(1, 7):    # 1...6
         count = 0
         for r in ranges:
             start_i, start_o, r_count, skip = r[0], r[1], r[2], r[3]
@@ -318,7 +315,7 @@ def generate_caseconv_tables(convmap):
                 continue
             count += 1
         be.bits(count, 6)
-        print('- encode: skip=%d, count=%d' % (curr_skip, count))
+        print(('- encode: skip=%d, count=%d' % (curr_skip, count)))
 
         for r in ranges:
             start_i, start_o, r_count, skip = r[0], r[1], r[2], r[3]
@@ -342,7 +339,7 @@ def generate_caseconv_tables(convmap):
         cp_i, str_o = t[0], t[1]
         be.bits(cp_i, 16)
         be.bits(len(str_o), 2)
-        for i in xrange(len(str_o)):
+        for i in range(len(str_o)):
             be.bits(ord(str_o[i]), 16)
 
     return be.getBytes(), be.getNumBits()
@@ -356,9 +353,9 @@ def generate_regexp_canonicalize_tables(convmap):
         res = []
         highest_nonid = -1
 
-        for cp in xrange(65536):
+        for cp in range(65536):
             res_cp = cp  # default to as is
-            if convmap.has_key(cp):
+            if cp in convmap:
                 tmp = convmap[cp]
                 if len(tmp) == 1:
                     # If multiple codepoints from input, ignore.
@@ -372,7 +369,7 @@ def generate_regexp_canonicalize_tables(convmap):
         # At the moment this is 65370, which means there's very little
         # gain in assuming 1:1 mapping above a certain BMP codepoint
         # (though we do assume 1:1 mapping for above BMP codepoints).
-        print('- highest non-identity mapping: %d' % highest_nonid)
+        print(('- highest non-identity mapping: %d' % highest_nonid))
 
         return res
 
@@ -393,7 +390,7 @@ def generate_regexp_canonicalize_tables(convmap):
         for x in res:
             if x:
                 res_count += 1
-        print('- %d dontcare codepoints' % res_count)
+        print(('- %d dontcare codepoints' % res_count))
         return res
 
     print('generate canon dontcare')
@@ -406,7 +403,7 @@ def generate_regexp_canonicalize_tables(convmap):
     # (Currently unused.)
 
     canon_ranges = []
-    for cp in xrange(65536):
+    for cp in range(65536):
        canon_ranges.append([ cp, canontab[cp], 1 ])  # 1 codepoint ranges at first
     def merge_compatible_nogap(rng1, rng2):
         # Merge adjacent ranges if continuity allows.
@@ -416,7 +413,7 @@ def generate_regexp_canonicalize_tables(convmap):
         return None
     def merge_check_nogap():
         len_start = len(canon_ranges)
-        for i in xrange(len(canon_ranges) - 1):
+        for i in range(len(canon_ranges) - 1):
             j = i + 1
             rng1 = canon_ranges[i]
             rng2 = canon_ranges[j]
@@ -442,7 +439,7 @@ def generate_regexp_canonicalize_tables(convmap):
         if t is None:
             break
         canon_ranges = t
-    print('- %d ranges' % len(canon_ranges))
+    print(('- %d ranges' % len(canon_ranges)))
     #for rng in canon_ranges:
     #    print('canon_ranges:')
     #    print(repr(rng))
@@ -466,7 +463,7 @@ def generate_regexp_canonicalize_tables(convmap):
         assert(canontab[0] == 0)  # can start from in == out == 0
         prev_in = -1
         prev_out = -1
-        for i in xrange(65536):
+        for i in range(65536):
             # First create a straight true/false bitmap for BMP.
             curr_in = i
             curr_out = canontab[i]
@@ -500,7 +497,7 @@ def generate_regexp_canonicalize_tables(convmap):
             res.append([ r[0], r[1] ])
         while True:
             found = False
-            for i in xrange(len(res) - 2):
+            for i in range(len(res) - 2):
                 r1 = res[i]
                 r2 = res[i + 1]
                 r3 = res[i + 2]
@@ -521,12 +518,12 @@ def generate_regexp_canonicalize_tables(convmap):
 
     print('generate needcheck without false fillins')
     needcheck_ranges1 = generate_needcheck_ranges(needcheck)
-    print('- %d ranges' % len(needcheck_ranges1))
+    print(('- %d ranges' % len(needcheck_ranges1)))
     #print(needcheck_ranges1)
 
     print('generate needcheck with false fillins')
     needcheck_ranges2 = fillin_needcheck_ranges(needcheck_ranges1, 11)
-    print('- %d ranges' % len(needcheck_ranges2))
+    print(('- %d ranges' % len(needcheck_ranges2)))
     #print(needcheck_ranges2)
 
     # Generate a bitmap for BMP, divided into N-codepoint blocks, with each
@@ -544,11 +541,11 @@ def generate_regexp_canonicalize_tables(convmap):
     block_shift = 5
     block_size = 1 << block_shift
     block_mask = block_size - 1
-    num_blocks = 65536 / block_size
+    num_blocks = 65536 // block_size
 
     def generate_block_bits(check_continuity):
         res = [ True ] * num_blocks
-        for i in xrange(num_blocks):
+        for i in range(num_blocks):
             base_in = i * block_size
             base_out = canontab[base_in]
             if check_continuity:
@@ -557,7 +554,7 @@ def generate_regexp_canonicalize_tables(convmap):
             else:
                 lower = 0    # [0,block_size-1]
                 upper = block_size
-            for j in xrange(lower, upper):
+            for j in range(lower, upper):
                 cp = base_in + j
                 if cp >= 0x0000 and cp <= 0xffff and canontab[cp] != base_out + j:
                    res[i] = False
@@ -569,7 +566,7 @@ def generate_regexp_canonicalize_tables(convmap):
         tmp = re.sub(r'.{64}', lambda x: x.group(0) + '\n', tmp)
         blocks_true = tmp.count('x')
         blocks_false = tmp.count('.')
-        print('%d codepoint blocks are continuous, %d blocks are not' % (blocks_true, blocks_false))
+        print(('%d codepoint blocks are continuous, %d blocks are not' % (blocks_true, blocks_false)))
         sys.stdout.write(tmp)
         #print(bits)
 
@@ -615,8 +612,8 @@ def generate_regexp_canonicalize_tables(convmap):
 
     print('generate final canon bitmap')
     block_bitmap = convert_to_bitmap(block_bits2)
-    print('- %d bytes' % len(block_bitmap))
-    print('- ' + repr(block_bitmap))
+    print(('- %d bytes' % len(block_bitmap)))
+    print(('- ' + repr(block_bitmap)))
     canon_bitmap = {
         'data': block_bitmap,
         'block_size': block_size,
@@ -626,16 +623,16 @@ def generate_regexp_canonicalize_tables(convmap):
 
     # This is useful to figure out corner case test cases.
     print('canon blocks which are different with and without continuity check')
-    for i in xrange(num_blocks):
+    for i in range(num_blocks):
         if block_bits1[i] != block_bits2[i]:
-            print('- block %d ([%d,%d]) differs' % (i, i * block_size, i * block_size + block_size - 1))
+            print(('- block %d ([%d,%d]) differs' % (i, i * block_size, i * block_size + block_size - 1)))
 
     return canontab, canon_bitmap
 
 def clonedict(x):
     "Shallow clone of input dict."
     res = {}
-    for k in x.keys():
+    for k in list(x.keys()):
         res[k] = x[k]
     return res
 
@@ -675,7 +672,7 @@ def main():
         genc.emitHeader('extract_caseconv.py')
         genc.emitArray(uc_bytes, opts.table_name_uc, size=len(uc_bytes), typename='duk_uint8_t', intvalues=True, const=True)
         genc.emitArray(lc_bytes, opts.table_name_lc, size=len(lc_bytes), typename='duk_uint8_t', intvalues=True, const=True)
-        f = open(opts.out_source, 'wb')
+        f = open(opts.out_source, 'w')
         f.write(genc.getString())
         f.close()
 
@@ -683,7 +680,7 @@ def main():
         genc.emitHeader('extract_caseconv.py')
         genc.emitLine('extern const duk_uint8_t %s[%d];' % (opts.table_name_uc, len(uc_bytes)))
         genc.emitLine('extern const duk_uint8_t %s[%d];' % (opts.table_name_lc, len(lc_bytes)))
-        f = open(opts.out_header, 'wb')
+        f = open(opts.out_header, 'w')
         f.write(genc.getString())
         f.close()
     elif opts.command == 're_canon_lookup':
@@ -694,14 +691,14 @@ def main():
         genc = dukutil.GenerateC()
         genc.emitHeader('extract_caseconv.py')
         genc.emitArray(re_canon_lookup, opts.table_name_re_canon_lookup, size=len(re_canon_lookup), typename='duk_uint16_t', intvalues=True, const=True)
-        f = open(opts.out_source, 'wb')
+        f = open(opts.out_source, 'w')
         f.write(genc.getString())
         f.close()
 
         genc = dukutil.GenerateC()
         genc.emitHeader('extract_caseconv.py')
         genc.emitLine('extern const duk_uint16_t %s[%d];' % (opts.table_name_re_canon_lookup, len(re_canon_lookup)))
-        f = open(opts.out_header, 'wb')
+        f = open(opts.out_header, 'w')
         f.write(genc.getString())
         f.close()
     elif opts.command == 're_canon_bitmap':
@@ -713,7 +710,7 @@ def main():
         genc = dukutil.GenerateC()
         genc.emitHeader('extract_caseconv.py')
         genc.emitArray(re_canon_bitmap['data'], opts.table_name_re_canon_bitmap, size=len(re_canon_bitmap['data']), typename='duk_uint8_t', intvalues=True, const=True)
-        f = open(opts.out_source, 'wb')
+        f = open(opts.out_source, 'w')
         f.write(genc.getString())
         f.close()
 
@@ -723,7 +720,7 @@ def main():
         genc.emitDefine('DUK_CANON_BITMAP_BLKSHIFT', re_canon_bitmap['block_shift'])
         genc.emitDefine('DUK_CANON_BITMAP_BLKMASK', re_canon_bitmap['block_mask'])
         genc.emitLine('extern const duk_uint8_t %s[%d];' % (opts.table_name_re_canon_bitmap, len(re_canon_bitmap['data'])))
-        f = open(opts.out_header, 'wb')
+        f = open(opts.out_header, 'w')
         f.write(genc.getString())
         f.close()
     else:

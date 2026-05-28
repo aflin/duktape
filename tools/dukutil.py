@@ -25,13 +25,16 @@ class BitEncoder:
     def bits(self, x, nbits):
         if (x >> nbits) != 0:
             raise Exception('input value has too many bits (value: %d, bits: %d)' % (x, nbits))
-        for shift in xrange(nbits - 1, -1, -1):  # nbits - 1, nbits - 2, ..., 0
+        for shift in range(nbits - 1, -1, -1):  # nbits - 1, nbits - 2, ..., 0
             self._bits.append((x >> shift) & 0x01)
 
     def string(self, x):
-        for i in xrange(len(x)):
-            ch = ord(x[i])
-            for shift in xrange(7, -1, -1):  # 7, 6, ..., 0
+        # x may be either a bytes object (preferred under Python 3) or
+        # a unicode str; either way each unit is treated as one byte
+        # of payload.
+        for i in range(len(x)):
+            ch = x[i] if isinstance(x, (bytes, bytearray)) else ord(x[i])
+            for shift in range(7, -1, -1):  # 7, 6, ..., 0
                 self._bits.append((ch >> shift) & 0x01)
 
     # Shared varint encoding.
@@ -76,15 +79,15 @@ class BitEncoder:
         nbits = len(self._bits)
         while (nbits % 8) != 0:
             nbits += 1
-        return nbits / 8
+        return nbits // 8
 
     def getBytes(self):
         "Get current bitstream as a byte sequence, padded with zero bits."
         bytes = []
 
-        for i in xrange(self.getNumBytes()):
+        for i in range(self.getNumBytes()):
             t = 0
-            for j in xrange(8):
+            for j in range(8):
                 off = i*8 + j
                 if off >= len(self._bits):
                     t = (t << 1)
@@ -127,14 +130,13 @@ class GenerateC:
     def emitArray(self, data, tablename, visibility=None, typename='char', size=None, intvalues=False, const=True):
         "Emit an array as a C array."
 
-        # lenient input
-        if isinstance(data, unicode):
-            data = data.encode('utf-8')
+        # lenient input.  Latin-1 (not UTF-8) preserves Python 2's
+        # `str` = bytes semantics — each char is a single byte —
+        # which matches the legacy bitpacker output.
         if isinstance(data, str):
-            tmp = []
-            for i in xrange(len(data)):
-                tmp.append(ord(data[i]))
-            data = tmp
+            data = data.encode('latin-1')
+        if isinstance(data, (bytes, bytearray)):
+            data = list(data)
 
         size_spec = ''
         if size is not None:
@@ -148,7 +150,7 @@ class GenerateC:
         self.emitLine('%s%s%s %s[%s] = {' % (visib_qual, const_qual, typename, tablename, size_spec))
 
         line = ''
-        for i in xrange(len(data)):
+        for i in range(len(data)):
             if intvalues:
                 suffix = ''
                 if data[i] < -32768 or data[i] > 32767:
@@ -256,7 +258,7 @@ def duk_heap_hashstring_dense(x, hash_seed, big_endian=False, strhash16=False):
             skip = 256 * DUK__STRHASH_BLOCKSIZE + DUK__STRHASH_BLOCKSIZE
 
         res = duk_util_hashbytes(x, 0, DUK__STRHASH_SHORTSTRING, str_seed, big_endian)
-        off = DUK__STRHASH_SHORTSTRING + (skip * (res % 256)) / 256
+        off = DUK__STRHASH_SHORTSTRING + (skip * (res % 256)) // 256
 
         while off < len(x):
             left = len(x) - off

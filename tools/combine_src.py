@@ -87,7 +87,7 @@ class Line:
 def readFile(filename):
     lines = []
 
-    with open(filename, 'rb') as f:
+    with open(filename, 'r') as f:
         lineno = 0
         for line in f:
             lineno += 1
@@ -103,7 +103,7 @@ def lookupInclude(incfn):
     inccomp = re.split(re_sep, incfn)  # split include path, support / and \
 
     for path in include_paths:
-        fn = apply(os.path.join, [ path ] + inccomp)
+        fn = os.path.join(*[ path ] + inccomp)
         if os.path.exists(fn):
             return fn  # Return full path to first match
 
@@ -126,7 +126,7 @@ def addAutomaticUndefs(f):
             # reliable #undef's (though maybe duplicates) at
             # the end.
             #logger.debug('UNDEFINED: %s' % repr(m.group(1)))
-            if defined.has_key(m.group(1)):
+            if m.group(1) in defined:
                 del defined[m.group(1)]
 
     # Undefine anything that seems to be left defined.  This not a 100%
@@ -153,7 +153,7 @@ def createCombined(files, prologue_filename, line_directives):
     emit_state = [ None, None ]  # curr_filename, curr_lineno
 
     def emit(line):
-        if isinstance(line, (str, unicode)):
+        if isinstance(line, str):
             res.append(line)
             emit_state[1] += 1
         else:
@@ -170,7 +170,7 @@ def createCombined(files, prologue_filename, line_directives):
     included = {}  # headers already included
 
     if prologue_filename is not None:
-        with open(prologue_filename, 'rb') as f:
+        with open(prologue_filename, 'r') as f:
             for line in f.read().split('\n'):
                 res.append(line)
 
@@ -197,7 +197,7 @@ def createCombined(files, prologue_filename, line_directives):
                 emit(line)  # keep as is
                 continue
 
-            if included.has_key(incpath):
+            if incpath in included:
                 # We suppress duplicate includes, both internal and
                 # external, based on the assumption that includes are
                 # not behind #if defined() checks.  This is the case for
@@ -260,9 +260,9 @@ def main():
 
     combined_source, metadata = \
         createCombined(files, opts.prologue, opts.line_directives)
-    with open(opts.output_source, 'wb') as f:
+    with open(opts.output_source, 'w') as f:
         f.write(combined_source)
-    with open(opts.output_metadata, 'wb') as f:
+    with open(opts.output_metadata, 'w') as f:
         f.write(json.dumps(metadata, indent=4))
 
     logger.info('Combined %d source files, %d bytes written to %s' % (len(files), len(combined_source), opts.output_source))

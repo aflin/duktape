@@ -2720,10 +2720,22 @@ DUK_LOCAL duk_bool_t duk__defaultvalue_coerce_attempt(duk_hthread *thr, duk_idx_
 		if (duk_is_callable(thr, -1)) {
 			duk_dup(thr, idx); /* -> [ ... func this ] */
 			duk_call_method(thr, 0); /* -> [ ... retval ] */
+#if defined(DUK_RP_USE_BIGINT)
+			/* BigInts ARE primitives per spec; the standard
+			 * duk_is_primitive macro excludes type OBJECT, which
+			 * is how BigInts are represented internally.  Accept
+			 * a BigInt return from valueOf/toString here. */
+			if (duk_is_primitive(thr, -1) ||
+			    duk_rp_tval_is_bigint(duk_get_tval(thr, -1))) {
+				duk_replace(thr, idx);
+				return 1;
+			}
+#else
 			if (duk_is_primitive(thr, -1)) {
 				duk_replace(thr, idx);
 				return 1;
 			}
+#endif
 			/* [ ... retval ]; popped below */
 		}
 	}
@@ -2767,6 +2779,13 @@ DUK_LOCAL void duk__to_primitive_helper(duk_hthread *thr, duk_idx_t idx, duk_int
 		DUK_ASSERT(!duk_is_buffer(thr, idx)); /* duk_to_string() relies on this behavior */
 		return;
 	}
+#if defined(DUK_RP_USE_BIGINT)
+	/* BigInts are primitives per spec; treat them as such here so
+	 * ToPrimitive(bigint) is a no-op (returns the BigInt itself). */
+	if (duk_rp_tval_is_bigint(duk_get_tval(thr, idx))) {
+		return;
+	}
+#endif
 
 	/* @@toPrimitive lookup.  Also do for plain buffers and lightfuncs
 	 * which mimic objects.
@@ -2776,9 +2795,17 @@ DUK_LOCAL void duk__to_primitive_helper(duk_hthread *thr, duk_idx_t idx, duk_int
 		duk_dup(thr, idx);
 		duk_push_string(thr, duk__toprim_hint_strings[hint]);
 		duk_call_method(thr, 1); /* [ ... method value hint ] -> [ ... res] */
+#if defined(DUK_RP_USE_BIGINT)
+		/* Accept BigInt as a primitive return value. */
+		if (duk_check_type_mask(thr, -1, DUK_TYPE_MASK_OBJECT | DUK_TYPE_MASK_LIGHTFUNC | DUK_TYPE_MASK_BUFFER) &&
+		    !duk_rp_tval_is_bigint(duk_get_tval(thr, -1))) {
+			goto fail;
+		}
+#else
 		if (duk_check_type_mask(thr, -1, DUK_TYPE_MASK_OBJECT | DUK_TYPE_MASK_LIGHTFUNC | DUK_TYPE_MASK_BUFFER)) {
 			goto fail;
 		}
+#endif
 		duk_replace(thr, idx);
 		return;
 	}
@@ -2891,6 +2918,13 @@ DUK_EXTERNAL duk_double_t duk_to_number(duk_hthread *thr, duk_idx_t idx) {
 	idx = duk_require_normalize_index(thr, idx);
 	tv = DUK_GET_TVAL_POSIDX(thr, idx);
 	DUK_ASSERT(tv != NULL);
+#if defined(DUK_RP_USE_BIGINT)
+	/* Spec: ToNumber on a BigInt throws TypeError. */
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv))) {
+		DUK_ERROR_TYPE(thr, "Cannot convert a BigInt to a number");
+		DUK_WO_NORETURN(return 0.0;);
+	}
+#endif
 	d = duk_js_tonumber(thr, tv); /* XXX: fastint coercion? now result will always be a non-fastint */
 
 	/* ToNumber() may have side effects so must relookup 'tv'. */
@@ -3427,6 +3461,16 @@ DUK_EXTERNAL const char *duk_to_string(duk_hthread *thr, duk_idx_t idx) {
 		 * Symbol objects: duk_to_primitive() results in a plain symbol
 		 * value, and duk_to_string() then causes a TypeError.
 		 */
+#if defined(DUK_RP_USE_BIGINT)
+		/* BigInts: invoke the engine-internal abstract BigInt::toString
+		 * (libtommath mp_to_radix decimal), NOT the user-overridable
+		 * BigInt.prototype.toString.  Spec ToString of a BigInt value
+		 * is independent of monkey-patching BigInt.prototype.toString. */
+		if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv))) {
+			duk_rp_push_bigint_to_string(thr, idx, 10);
+			break;
+		}
+#endif
 		duk_to_primitive(thr, idx, DUK_HINT_STRING);
 		DUK_ASSERT(!duk_is_buffer(thr, idx)); /* ToPrimitive() must guarantee */
 		DUK_ASSERT(!duk_is_object(thr, idx));
@@ -6380,6 +6424,22 @@ DUK_EXTERNAL void duk_throw_raw(duk_hthread *thr) {
 	DUK_UNREACHABLE();
 }
 
+#if defined(DUK_RP_USE_FORCE_INTERRUPT)
+/* Rampart contribution: force the bytecode-interrupt to fire on the
+ * next executed instruction.  Used together with the embedder's
+ * exec-timeout-check hook so that process.exit() (and timeout-driven
+ * cancellation in general) doesn't have to wait up to
+ * DUK_HTHREAD_INTCTR_DEFAULT (256K opcodes) for the next natural
+ * interrupt.  Safe to call from any thread on its own duk_context. */
+#if defined(DUK_USE_INTERRUPT_COUNTER)
+DUK_EXTERNAL void duk_force_interrupt(duk_hthread *thr) {
+	DUK_ASSERT_API_ENTRY(thr);
+	thr->interrupt_init = 1;
+	thr->interrupt_counter = 0;
+}
+#endif
+#endif  /* DUK_RP_USE_FORCE_INTERRUPT */
+
 DUK_EXTERNAL void duk_fatal_raw(duk_hthread *thr, const char *err_msg) {
 	DUK_ASSERT_API_ENTRY(thr);
 	DUK_ASSERT(thr != NULL);
@@ -6536,7 +6596,7 @@ DUK_EXTERNAL duk_bool_t duk_strict_equals(duk_hthread *thr, duk_idx_t idx1, duk_
 	}
 
 	/* No coercions or other side effects, so safe */
-	return duk_js_strict_equals(tv1, tv2);
+	return duk_js_strict_equals_thr(thr, tv1, tv2);
 }
 
 DUK_EXTERNAL duk_bool_t duk_samevalue(duk_hthread *thr, duk_idx_t idx1, duk_idx_t idx2) {
@@ -6551,7 +6611,7 @@ DUK_EXTERNAL duk_bool_t duk_samevalue(duk_hthread *thr, duk_idx_t idx1, duk_idx_
 	}
 
 	/* No coercions or other side effects, so safe */
-	return duk_js_samevalue(tv1, tv2);
+	return duk_js_samevalue_thr(thr, tv1, tv2);
 }
 
 /*

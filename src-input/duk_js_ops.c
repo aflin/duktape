@@ -187,6 +187,16 @@ DUK_INTERNAL duk_double_t duk_js_tonumber(duk_hthread *thr, duk_tval *tv) {
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(tv != NULL);
 
+#if defined(DUK_RP_USE_BIGINT)
+	/* Spec: ToNumber on a BigInt throws TypeError.  Catch direct
+	 * BigInt tvals here so that ToPrimitive paths (which may yield
+	 * a BigInt) hit this on the recursive call. */
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv))) {
+		DUK_ERROR_TYPE(thr, "Cannot convert a BigInt to a number");
+		DUK_WO_NORETURN(return 0.0;);
+	}
+#endif
+
 	switch (DUK_TVAL_GET_TAG(tv)) {
 	case DUK_TAG_UNDEFINED: {
 		/* return a specific NaN (although not strictly necessary) */
@@ -519,6 +529,19 @@ DUK_INTERNAL duk_bool_t duk_js_equals_helper(duk_hthread *thr, duk_tval *tv_x, d
 	 * equals comparison it must be != NULL.
 	 */
 	DUK_ASSERT(flags != 0 || thr != NULL);
+
+#if defined(DUK_RP_USE_BIGINT)
+	/* BigInt equality: spec says SameValue/SameValueZero of two
+	 * BigInts compares values (not heap identity).  Loose == across
+	 * types coerces (bigint==string parses, bigint==bool coerces). */
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv_x) || duk_rp_tval_is_bigint(tv_y))) {
+		duk_bool_t eq;
+		duk_bool_t strict = (flags & (DUK_EQUALS_FLAG_STRICT | DUK_EQUALS_FLAG_SAMEVALUE)) != 0;
+		if (thr != NULL && duk_rp_bigint_try_equals(thr, tv_x, tv_y, strict, &eq)) {
+			return eq;
+		}
+	}
+#endif
 
 	/*
 	 *  Same type?
@@ -891,6 +914,24 @@ DUK_INTERNAL duk_bool_t duk_js_compare_helper(duk_hthread *thr, duk_tval *tv_x, 
 	DUK_ASSERT(DUK_COMPARE_FLAG_NEGATE == 1); /* Rely on this flag being lowest. */
 	retval = flags & DUK_COMPARE_FLAG_NEGATE;
 	DUK_ASSERT(retval == 0 || retval == 1);
+
+#if defined(DUK_RP_USE_BIGINT)
+	/* BigInt relational comparison.  duk_rp_bigint_try_compare returns
+	 * 1 when it handled the case; 2 in *out_ord signals NaN-style
+	 * undefined which evaluates as false regardless of the operator. */
+	if (DUK_UNLIKELY(duk_rp_tval_is_bigint(tv_x) || duk_rp_tval_is_bigint(tv_y))) {
+		int ord;
+		if (duk_rp_bigint_try_compare(thr, tv_x, tv_y, &ord)) {
+			/* Spec: NaN-side comparison is undefined, ALL four
+			 * relational operators return false regardless of NEGATE. */
+			if (ord == 2) {
+				return 0;
+			}
+			if (ord < 0) return retval ^ 1;
+			return retval;
+		}
+	}
+#endif
 
 	/* Fast path for fastints */
 #if defined(DUK_USE_FASTINT)
@@ -1290,6 +1331,10 @@ DUK_INTERNAL duk_small_uint_t duk_js_typeof_stridx(duk_tval *tv_x) {
 		DUK_ASSERT(obj != NULL);
 		if (DUK_HOBJECT_IS_CALLABLE(obj)) {
 			stridx = DUK_STRIDX_LC_FUNCTION;
+#if defined(DUK_RP_USE_BIGINT)
+		} else if (DUK_HOBJECT_GET_CLASS_NUMBER(obj) == DUK_HOBJECT_CLASS_BIGINT) {
+			stridx = DUK_STRIDX_LC_BIGINT;
+#endif
 		} else {
 			stridx = DUK_STRIDX_LC_OBJECT;
 		}

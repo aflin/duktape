@@ -3,6 +3,20 @@
 *.o
 *.strip
 *.pyc
+*.bak
+*.bak2
+
+# Default --output-directory for configure.py is <repo>/build.  Holds
+# the generated amalgamation outputs (duktape.c, duktape.h,
+# duk_config.h, duk_source_meta.json) plus any side-by-side build
+# scratch.  Never checked in.
+/build/
+# Same artifacts at the repo root if a user runs configure.py with
+# --output-directory=. (the pre-build/ default).
+/duktape.c
+/duktape.h
+/duk_config.h
+/duk_source_meta.json
 /*.gcda
 /*.su
 /_*

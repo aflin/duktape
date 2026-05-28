@@ -32,7 +32,7 @@ import atexit
 import shutil
 import logging
 try:
-    from StringIO import StringIO
+    from io import StringIO
 except ImportError:
     from io import StringIO
 
@@ -111,6 +111,32 @@ assumed_provides = {
     'DUK_SINGLE_FILE': True,         # compiling Duktape from a single source file (duktape.c) version
     'DUK_COMPILING_DUKTAPE': True,   # compiling Duktape (not user application)
     'DUK_CONFIG_H_INCLUDED': True,   # artifact, include guard
+    # rampart contributions (post duktape 2.7.0) — see util/rp_config.h.
+    # All of these are externally supplied (typically via -DDUK_RP_ALL or
+    # -DDUK_RP_USE_xxx on the compiler command line), so they're
+    # registered here so the snippet-resolver doesn't error on them.
+    'DUK_RP_ALL': True,
+    'DUK_RP_ANY_RUNTIME': True,
+    'DUK_RP_ANY_INTERNAL': True,
+    'DUK_RP_USE_PROMISE': True,
+    'DUK_RP_USE_MAP_SET': True,
+    'DUK_RP_USE_SCOPE_VARS': True,
+    'DUK_RP_USE_TEXTENCODING': True,
+    'DUK_RP_USE_BLOB': True,
+    'DUK_RP_USE_BUFFER_EXTRAS': True,
+    'DUK_RP_USE_CONSOLE_EXTENDED': True,
+    'DUK_RP_USE_ARRAY_ITER': True,
+    'DUK_RP_USE_STRING_ITER': True,
+    'DUK_RP_USE_ASYNC_ITER_SYMBOL': True,
+    'DUK_RP_USE_PROXY_REVOCABLE': True,
+    'DUK_RP_USE_OBJECT_VALUES_ENTRIES': True,
+    'DUK_RP_USE_ARRAY_EXTRAS': True,
+    'DUK_RP_USE_STRING_EXTRAS': True,
+    'DUK_RP_USE_OBJECT_EXTRAS': True,
+    'DUK_RP_USE_MODERN_POLYFILLS': True,
+    'DUK_RP_USE_CANCEL': True,
+    'DUK_RP_USE_FORCE_INTERRUPT': True,
+    'DUK_RP_USE_OWN_PROP_INFO': True,
 }
 
 # Platform files must provide at least these (additional checks
@@ -186,17 +212,17 @@ class Snippet:
         for line in lines:
             if isinstance(line, str):
                 self.lines.append(line)
-            elif isinstance(line, unicode):
-                self.lines.append(line.encode('utf-8'))
+            elif isinstance(line, bytes):
+                self.lines.append(line.decode('utf-8'))
             else:
                 raise Exception('invalid line: %r' % line)
         self.provides = {}
         if provides is not None:
-            for k in provides.keys():
+            for k in list(provides.keys()):
                 self.provides[k] = True
         self.requires = {}
         if requires is not None:
-            for k in requires.keys():
+            for k in list(requires.keys()):
                 self.requires[k] = True
 
         stripped_lines = strip_comments_from_lines(lines)
@@ -234,7 +260,7 @@ class Snippet:
                     elif m[:7] == 'DUK_USE':
                         # DUK_USE_xxx are internal and they should not be 'requirements'
                         pass
-                    elif self.provides.has_key(m):
+                    elif m in self.provides:
                         # Snippet provides it's own require; omit
                         pass
                     else:
@@ -243,9 +269,9 @@ class Snippet:
 
     def fromFile(cls, filename):
         lines = []
-        with open(filename, 'rb') as f:
+        with open(filename, 'r') as f:
             for line in f:
-                if line[-1] == '\n':
+                if line[-1:] == '\n':
                     line = line[:-1]
                 if line[:8] == '#snippet':
                     m = re.match(r'#snippet\s+"(.*?)"', line)
@@ -263,9 +289,9 @@ class Snippet:
         ret = Snippet([], [], [])
         for s in snippets:
             ret.lines += s.lines
-            for k in s.provides.keys():
+            for k in list(s.provides.keys()):
                 ret.provides[k] = True
-            for k in s.requires.keys():
+            for k in list(s.requires.keys()):
                 ret.requires[k] = True
         return ret
     merge = classmethod(merge)
@@ -377,14 +403,14 @@ def fill_dependencies_for_snippets(snippets, idx_deps):
 
         to_add = []
 
-        for k in sn.requires.keys():
-            if assumed_provides.has_key(k):
+        for k in list(sn.requires.keys()):
+            if k in assumed_provides:
                 continue
 
             found = False
             for sn2 in snlist:
-                if sn2.provides.has_key(k):
-                    if not graph.has_key(sn):
+                if k in sn2.provides:
+                    if sn not in graph:
                         graph[sn] = []
                     graph[sn].append(sn2)
                     found = True  # at least one other node provides 'k'
@@ -399,7 +425,7 @@ def fill_dependencies_for_snippets(snippets, idx_deps):
 
                 sn_req = None
                 for sn2 in helper_snippets:
-                    if sn2.provides.has_key(k):
+                    if k in sn2.provides:
                         sn_req = sn2
                         break
                 if sn_req is None:
@@ -409,7 +435,7 @@ def fill_dependencies_for_snippets(snippets, idx_deps):
                 # Snippet may have further unresolved provides; add recursively
                 to_add.append(sn_req)
 
-                if not graph.has_key(sn):
+                if sn not in graph:
                     graph[sn] = []
                 graph[sn].append(sn_req)
 
@@ -430,12 +456,12 @@ def fill_dependencies_for_snippets(snippets, idx_deps):
     while keepgoing:
         keepgoing = False
         for sn in snlist:
-            if handled.has_key(sn):
+            if sn in handled:
                 continue
 
             success = True
             for dep in graph.get(sn, []):
-                if not handled.has_key(dep):
+                if dep not in handled:
                     success = False
             if success:
                 snippets.insert(idx_deps, sn)
@@ -448,7 +474,7 @@ def fill_dependencies_for_snippets(snippets, idx_deps):
 
     # XXX: detect and handle loops cleanly
     for sn in snlist:
-        if handled.has_key(sn):
+        if sn in handled:
             continue
         logger.debug('UNHANDLED KEY')
         logger.debug('PROVIDES: %r' % sn.provides)
@@ -464,15 +490,15 @@ def serialize_snippet_list(snippets):
     ret = []
 
     emitted_provides = {}
-    for k in assumed_provides.keys():
+    for k in list(assumed_provides.keys()):
         emitted_provides[k] = True
 
     for sn in snippets:
         ret += sn.lines
-        for k in sn.provides.keys():
+        for k in list(sn.provides.keys()):
             emitted_provides[k] = True
-        for k in sn.requires.keys():
-            if not emitted_provides.has_key(k):
+        for k in list(sn.requires.keys()):
+            if k not in emitted_provides:
                 # XXX: conditional warning, happens in some normal cases
                 logger.warning('define %r required, not provided so far' % k)
                 pass
@@ -503,14 +529,14 @@ def scan_use_defs(dirname):
         root, ext = os.path.splitext(fn)
         if not root.startswith('DUK_USE_') or ext != '.yaml':
             continue
-        with open(os.path.join(dirname, fn), 'rb') as f:
-            doc = yaml.load(f)
+        with open(os.path.join(dirname, fn), 'r') as f:
+            doc = yaml.safe_load(f)
             if doc.get('example', False):
                 continue
             if doc.get('unimplemented', False):
                 logger.warning('unimplemented: %s' % fn)
                 continue
-            dockeys = doc.keys()
+            dockeys = list(doc.keys())
             for k in dockeys:
                 if not k in allowed_use_meta_keys:
                     logger.warning('unknown key %s in metadata file %s' % (k, fn))
@@ -520,7 +546,7 @@ def scan_use_defs(dirname):
 
             use_defs[doc['define']] = doc
 
-    keys = use_defs.keys()
+    keys = list(use_defs.keys())
     keys.sort()
     for k in keys:
         use_defs_list.append(use_defs[k])
@@ -534,14 +560,14 @@ def scan_opt_defs(dirname):
         root, ext = os.path.splitext(fn)
         if not root.startswith('DUK_OPT_') or ext != '.yaml':
             continue
-        with open(os.path.join(dirname, fn), 'rb') as f:
-            doc = yaml.load(f)
+        with open(os.path.join(dirname, fn), 'r') as f:
+            doc = yaml.safe_load(f)
             if doc.get('example', False):
                 continue
             if doc.get('unimplemented', False):
                 logger.warning('unimplemented: %s' % fn)
                 continue
-            dockeys = doc.keys()
+            dockeys = list(doc.keys())
             for k in dockeys:
                 if not k in allowed_opt_meta_keys:
                     logger.warning('unknown key %s in metadata file %s' % (k, fn))
@@ -551,7 +577,7 @@ def scan_opt_defs(dirname):
 
             opt_defs[doc['define']] = doc
 
-    keys = opt_defs.keys()
+    keys = list(opt_defs.keys())
     keys.sort()
     for k in keys:
         opt_defs_list.append(opt_defs[k])
@@ -564,14 +590,14 @@ def scan_use_tags():
         for tag in doc.get('tags', []):
             use_tags[tag] = True
 
-    use_tags_list = use_tags.keys()
+    use_tags_list = list(use_tags.keys())
     use_tags_list.sort()
 
 def scan_tags_meta(filename):
     global tags_meta
 
-    with open(filename, 'rb') as f:
-        tags_meta = yaml.load(f)
+    with open(filename, 'r') as f:
+        tags_meta = yaml.safe_load(f)
 
 def scan_helper_snippets(dirname):  # DUK_F_xxx snippets
     global helper_snippets
@@ -682,7 +708,7 @@ def rst_format(text):
     return '\n\n'.join(ret)
 
 def cint_encode(x):
-    if not isinstance(x, (int, long)):
+    if not isinstance(x, int):
         raise Exception('invalid input: %r' % x)
 
     # XXX: unsigned constants?
@@ -694,8 +720,8 @@ def cint_encode(x):
         return '%d' % x
 
 def cstr_encode(x):
-    if isinstance(x, unicode):
-        x = x.encode('utf-8')
+    if isinstance(x, bytes):
+        x = x.decode('utf-8')
     if not isinstance(x, str):
         raise Exception('invalid input: %r' % x)
 
@@ -746,7 +772,7 @@ def generate_option_documentation(opts, opt_list=None, rst_title=None, include_d
             dname = doc['define']
             desc = doc.get('description', None)
 
-            if handled.has_key(dname):
+            if dname in handled:
                 raise Exception('define handled twice, should not happen: %r' % dname)
             handled[dname] = True
 
@@ -773,7 +799,7 @@ def generate_option_documentation(opts, opt_list=None, rst_title=None, include_d
 
     for doc in opt_list:
         dname = doc['define']
-        if not handled.has_key(dname):
+        if dname not in handled:
             raise Exception('unhandled define (maybe missing from tags list?): %r' % dname)
 
     ret.empty()
@@ -792,15 +818,15 @@ def get_forced_options(opts):
     # overridden by a more specific one).
     forced_opts = {}
     for val in opts.force_options_yaml:
-        doc = yaml.load(StringIO(val))
-        for k in doc.keys():
-            if use_defs.has_key(k):
+        doc = yaml.safe_load(StringIO(val))
+        for k in list(doc.keys()):
+            if k in use_defs:
                 pass  # key is known
             else:
                 logger.warning('option override key %s not defined in metadata, ignoring' % k)
             forced_opts[k] = doc[k]  # shallow copy
 
-    if len(forced_opts.keys()) > 0:
+    if len(list(forced_opts.keys())) > 0:
         logger.debug('Overrides: %s' % json.dumps(forced_opts))
 
     return forced_opts
@@ -823,19 +849,19 @@ def emit_default_from_config_meta(ret, doc, forced_opts, undef_done, active_opts
             # an unconditional #undef, so don't emit a duplicate
             pass
         active_opts[defname] = False
-    elif isinstance(defval, (int, long)):
+    elif isinstance(defval, int):
         # integer value
         ret.line('#define ' + defname + ' ' + cint_encode(defval))
         active_opts[defname] = True
-    elif isinstance(defval, (str, unicode)):
+    elif isinstance(defval, str):
         # verbatim value
         ret.line('#define ' + defname + ' ' + defval)
         active_opts[defname] = True
     elif isinstance(defval, dict):
-        if defval.has_key('verbatim'):
+        if 'verbatim' in defval:
             # verbatim text for the entire line
             ret.line(defval['verbatim'])
-        elif defval.has_key('string'):
+        elif 'string' in defval:
             # C string value
             ret.line('#define ' + defname + ' ' + cstr_encode(defval['string']))
         else:
@@ -948,7 +974,7 @@ def add_duk_active_defines_macro(ret):
         idx += 1
 
     tmp = []
-    for i in xrange(idx):
+    for i in range(idx):
         tmp.append('DUK_ACTIVE_DEF%d' % i)
 
     ret.line('#define DUK_ACTIVE_DEFINES ("Active: ["' + ' '.join(tmp) + ' " ]")')
@@ -979,9 +1005,9 @@ def generate_duk_config_header(opts, meta_dir):
     # strongly recommended that the option is provided.
     forced_opts = get_forced_options(opts)
     for doc in use_defs_list:
-        if doc.get('warn_if_missing', False) and not forced_opts.has_key(doc['define']):
+        if doc.get('warn_if_missing', False) and doc['define'] not in forced_opts:
             # Awkward handling for DUK_USE_CPP_EXCEPTIONS + DUK_USE_FATAL_HANDLER.
-            if doc['define'] == 'DUK_USE_FATAL_HANDLER' and forced_opts.has_key('DUK_USE_CPP_EXCEPTIONS'):
+            if doc['define'] == 'DUK_USE_FATAL_HANDLER' and 'DUK_USE_CPP_EXCEPTIONS' in forced_opts:
                 pass  # DUK_USE_FATAL_HANDLER not critical with DUK_USE_CPP_EXCEPTIONS
             else:
                 logger.warning('Recommended config option ' + doc['define'] + ' not provided')
@@ -994,14 +1020,14 @@ def generate_duk_config_header(opts, meta_dir):
     active_opts = {}
 
     platforms = None
-    with open(os.path.join(meta_dir, 'platforms.yaml'), 'rb') as f:
-        platforms = yaml.load(f)
+    with open(os.path.join(meta_dir, 'platforms.yaml'), 'r') as f:
+        platforms = yaml.safe_load(f)
     architectures = None
-    with open(os.path.join(meta_dir, 'architectures.yaml'), 'rb') as f:
-        architectures = yaml.load(f)
+    with open(os.path.join(meta_dir, 'architectures.yaml'), 'r') as f:
+        architectures = yaml.safe_load(f)
     compilers = None
-    with open(os.path.join(meta_dir, 'compilers.yaml'), 'rb') as f:
-        compilers = yaml.load(f)
+    with open(os.path.join(meta_dir, 'compilers.yaml'), 'r') as f:
+        compilers = yaml.safe_load(f)
 
     # XXX: indicate feature option support, sanity checks enabled, etc
     # in general summary of options, perhaps genconfig command line?
@@ -1257,10 +1283,10 @@ def generate_duk_config_header(opts, meta_dir):
                             unused=not opts.omit_unused_config_options):
         defname = doc['define']
 
-        if not forced_opts.has_key(defname):
+        if defname not in forced_opts:
             continue
 
-        if not doc.has_key('default'):
+        if 'default' not in doc:
             raise Exception('config option %s is missing default value' % defname)
 
         if first_forced:
@@ -1268,7 +1294,7 @@ def generate_duk_config_header(opts, meta_dir):
             first_forced = False
 
         undef_done = False
-        if tmp.provides.has_key(defname):
+        if defname in tmp.provides:
             ret.line('#undef ' + defname)
             undef_done = True
 
@@ -1285,8 +1311,8 @@ def generate_duk_config_header(opts, meta_dir):
     need = {}
     for doc in get_use_defs(removed=False):
         need[doc['define']] = True
-    for k in tmp.provides.keys():
-        if need.has_key(k):
+    for k in list(tmp.provides.keys()):
+        if k in need:
             del need[k]
     need_keys = sorted(need.keys())
 
@@ -1344,7 +1370,7 @@ def generate_duk_config_header(opts, meta_dir):
 # config metadata.  Also warn about non-removed config options that are
 # not found in the source.
 def validate_config_options_in_source(fn):
-    with open(fn, 'rb') as f:
+    with open(fn, 'r') as f:
         doc = json.loads(f.read())
 
     defs_used = {}
@@ -1362,8 +1388,8 @@ def validate_config_options_in_source(fn):
             pass
 
     for meta in use_defs_list:
-        if not defs_used.has_key(meta['define']):
-            if not meta.has_key('removed'):
+        if meta['define'] not in defs_used:
+            if 'removed' not in meta:
                 logger.debug('config option %r not found in source code' % meta['define'])
 
 #
@@ -1379,7 +1405,7 @@ def add_genconfig_optparse_options(parser, direct=False):
         force_options_yaml.append(value)
     def add_force_option_file(option, opt, value, parser):
         # XXX: check that YAML parses
-        with open(value, 'rb') as f:
+        with open(value, 'r') as f:
             force_options_yaml.append(f.read())
     def add_force_option_define(option, opt, value, parser):
         defname, eq, defval = value.partition('=')
@@ -1404,7 +1430,7 @@ def add_genconfig_optparse_options(parser, direct=False):
     def add_fixup_header_line(option, opt, value, parser):
         fixup_header_lines.append(value)
     def add_fixup_header_file(option, opt, value, parser):
-        with open(value, 'rb') as f:
+        with open(value, 'r') as f:
             for line in f:
                 if line[-1] == '\n':
                     line = line[:-1]
@@ -1493,7 +1519,7 @@ def genconfig(opts, args):
     scan_use_tags()
     scan_tags_meta(os.path.join(meta_dir, 'tags.yaml'))
     logger.debug('%s, scanned%d DUK_USE_XXX, %d helper snippets' % \
-        (metadata_src_text, len(use_defs.keys()), len(helper_snippets)))
+        (metadata_src_text, len(list(use_defs.keys())), len(helper_snippets)))
     logger.debug('Tags: %r' % use_tags_list)
 
     if opts.used_stridx_metadata is not None:
@@ -1516,11 +1542,11 @@ def genconfig(opts, args):
             desc.append('dll mode')
         logger.info('Creating duk_config.h: ' + ', '.join(desc))
         result, active_opts = generate_duk_config_header(opts, meta_dir)
-        with open(opts.output, 'wb') as f:
+        with open(opts.output, 'w') as f:
             f.write(result)
         logger.debug('Wrote duk_config.h to ' + str(opts.output))
         if opts.output_active_options is not None:
-            with open(opts.output_active_options, 'wb') as f:
+            with open(opts.output_active_options, 'w') as f:
                 f.write(json.dumps(active_opts, indent=4))
             logger.debug('Wrote active options JSON metadata to ' + str(opts.output_active_options))
     elif cmd == 'feature-documentation':
@@ -1528,7 +1554,7 @@ def genconfig(opts, args):
     elif cmd == 'config-documentation':
         logger.info('Creating config option documentation')
         result = generate_config_option_documentation(opts)
-        with open(opts.output, 'wb') as f:
+        with open(opts.output, 'w') as f:
             f.write(result)
         logger.debug('Wrote config option documentation to ' + str(opts.output))
     else:

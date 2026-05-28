@@ -59,9 +59,16 @@ DUK_INTERNAL_DECL duk_bool_t duk_js_isarray(duk_tval *tv);
 DUK_INTERNAL_DECL double duk_js_arith_pow(double x, double y);
 DUK_INTERNAL_DECL double duk_js_arith_mod(double x, double y);
 
-#define duk_js_equals(thr, tv_x, tv_y)   duk_js_equals_helper((thr), (tv_x), (tv_y), 0)
-#define duk_js_strict_equals(tv_x, tv_y) duk_js_equals_helper(NULL, (tv_x), (tv_y), DUK_EQUALS_FLAG_STRICT)
-#define duk_js_samevalue(tv_x, tv_y)     duk_js_equals_helper(NULL, (tv_x), (tv_y), DUK_EQUALS_FLAG_SAMEVALUE)
+#define duk_js_equals(thr, tv_x, tv_y)              duk_js_equals_helper((thr), (tv_x), (tv_y), 0)
+/* Rampart: when DUK_RP_USE_BIGINT is on the helper needs the thread
+ * to coerce / read the embedded mp_int* via the value stack.  Macros
+ * gain a thread argument; all in-tree callers already have one.
+ * Upstream API (duk_strict_equals / duk_samevalue) preserves the
+ * NULL behaviour for binary compatibility. */
+#define duk_js_strict_equals_thr(thr, tv_x, tv_y)   duk_js_equals_helper((thr), (tv_x), (tv_y), DUK_EQUALS_FLAG_STRICT)
+#define duk_js_samevalue_thr(thr, tv_x, tv_y)       duk_js_equals_helper((thr), (tv_x), (tv_y), DUK_EQUALS_FLAG_SAMEVALUE)
+#define duk_js_strict_equals(tv_x, tv_y)            duk_js_equals_helper(NULL, (tv_x), (tv_y), DUK_EQUALS_FLAG_STRICT)
+#define duk_js_samevalue(tv_x, tv_y)                duk_js_equals_helper(NULL, (tv_x), (tv_y), DUK_EQUALS_FLAG_SAMEVALUE)
 
 /* E5 Sections 11.8.1, 11.8.5; x < y */
 #define duk_js_lessthan(thr, tv_x, tv_y) duk_js_compare_helper((thr), (tv_x), (tv_Y), DUK_COMPARE_FLAG_EVAL_LEFT_FIRST)

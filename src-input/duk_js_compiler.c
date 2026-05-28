@@ -436,6 +436,9 @@ DUK_LOCAL const duk_uint8_t duk__token_lbp[] = {
 	DUK__MK_LBP_FLAGS(DUK__BP_INVALID, DUK__TOKEN_LBP_FLAG_NO_REGEXP), /* DUK_TOK_NUMBER */
 	DUK__MK_LBP_FLAGS(DUK__BP_INVALID, DUK__TOKEN_LBP_FLAG_NO_REGEXP), /* DUK_TOK_STRING */
 	DUK__MK_LBP_FLAGS(DUK__BP_INVALID, DUK__TOKEN_LBP_FLAG_NO_REGEXP), /* DUK_TOK_REGEXP */
+#if defined(DUK_RP_USE_BIGINT)
+	DUK__MK_LBP_FLAGS(DUK__BP_INVALID, DUK__TOKEN_LBP_FLAG_NO_REGEXP), /* DUK_TOK_BIGINT */
+#endif
 };
 
 /*
@@ -893,8 +896,12 @@ DUK_LOCAL void duk__convert_to_func_template(duk_compiler_ctx *comp_ctx) {
 	 * always need the varmap to be able to lookup variables at any point.
 	 */
 
-#if defined(DUK_USE_DEBUGGER_SUPPORT)
-	DUK_DD(DUK_DDPRINT("keeping _Varmap because debugger support is enabled"));
+#if defined(DUK_USE_DEBUGGER_SUPPORT) || defined(DUK_RP_USE_SCOPE_VARS)
+	/* Rampart contribution: DUK_RP_USE_SCOPE_VARS also wants the
+	 * _Varmap kept so duk_rp_get_scope_vars can look up variables by
+	 * name in optimized functions.  Joined the existing debugger
+	 * branch so the keep-varmap decision flows through one #if. */
+	DUK_DD(DUK_DDPRINT("keeping _Varmap because debugger support or DUK_RP_USE_SCOPE_VARS is enabled"));
 	keep_varmap = 1;
 #else
 	if (func->id_access_slow_own || /* directly uses slow accesses that may match own variables */
@@ -2064,7 +2071,7 @@ DUK_LOCAL duk_regconst_t duk__getconst(duk_compiler_ctx *comp_ctx) {
 		/* Strict equality is NOT enough, because we cannot use the same
 		 * constant for e.g. +0 and -0.
 		 */
-		if (duk_js_samevalue(tv1, tv2)) {
+		if (duk_js_samevalue_thr(thr, tv1, tv2)) {
 			DUK_DDD(DUK_DDDPRINT("reused existing constant for %!T -> const index %ld", (duk_tval *) tv1, (long) i));
 			duk_pop(thr);
 			return (duk_regconst_t) i | (duk_regconst_t) DUK__CONST_MARKER;
@@ -3455,6 +3462,19 @@ DUK_LOCAL void duk__expr_nud(duk_compiler_ctx *comp_ctx, duk_ivalue *res) {
 		duk_push_number(thr, tk->num);
 		goto plain_value;
 	}
+#if defined(DUK_RP_USE_BIGINT)
+	case DUK_TOK_BIGINT: {
+		/* tk->str1 holds the digit string; tk->num stashes the radix
+		 * (2, 8, 10, or 16) the lexer detected.  Materialise a BigInt
+		 * constant on the stack; the existing const-pool interning
+		 * machinery picks it up at plain_value. */
+		DUK_ASSERT(tk->str1 != NULL);
+		duk_push_hstring(thr, tk->str1);
+		duk_rp_push_bigint_from_string(thr, duk_get_string(thr, -1), (int) tk->num);
+		duk_remove(thr, -2);
+		goto plain_value;
+	}
+#endif
 	case DUK_TOK_STRING: {
 		DUK_ASSERT(tk->str1 != NULL);
 		duk_push_hstring(thr, tk->str1);

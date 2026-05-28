@@ -4,6 +4,12 @@
 
 #include "duk_internal.h"
 
+#if defined(DUK_RP_ANY_RUNTIME)
+/* Stitcher defined in duk_rp_extensions_init.c.  Auto-called at the end
+ * of duk_create_heap() to install all DUK_RP_USE_* features. */
+DUK_INTERNAL_DECL void duk_rp_install_extensions(duk_context *ctx);
+#endif
+
 typedef struct duk_internal_thread_state duk_internal_thread_state;
 
 struct duk_internal_thread_state {
@@ -62,6 +68,14 @@ DUK_EXTERNAL duk_hthread *duk_create_heap(duk_alloc_function alloc_func,
 	thr = heap->heap_thread;
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(thr->heap != NULL);
+
+#if defined(DUK_RP_ANY_RUNTIME)
+	/* Auto-install rampart extensions at the end of heap creation.
+	 * Each enabled DUK_RP_USE_* feature is invoked by the stitcher in
+	 * duk_rp_extensions_init.c.  See util/rp_config.h. */
+	duk_rp_install_extensions((duk_context *) thr);
+#endif
+
 	return thr;
 }
 

@@ -105,7 +105,7 @@ def scan(f, fn):
 
 def main():
     for fn in sys.argv[1:]:
-        f = open(fn, 'rb')
+        f = open(fn, 'r')
         scan(f, fn)
         f.close()
 
@@ -120,7 +120,7 @@ def main():
         # is UTF-8)
         'scanned_strings_base64': strs_base64
     }
-    k = strmap.keys()
+    k = list(strmap.keys())
     k.sort()
     for s in k:
         strs.append(s)
@@ -129,7 +129,7 @@ def main():
             t = t[0:-1]
         strs_base64.append(t)
 
-    print(json.dumps(doc, indent=4, ensure_ascii=True, sort_keys=True))
+    print((json.dumps(doc, indent=4, ensure_ascii=True, sort_keys=True)))
 
 if __name__ == '__main__':
     main()

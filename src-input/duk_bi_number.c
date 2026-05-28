@@ -50,7 +50,21 @@ DUK_INTERNAL duk_ret_t duk_bi_number_constructor(duk_hthread *thr) {
 	if (nargs == 0) {
 		duk_push_int(thr, 0);
 	}
+#if defined(DUK_RP_USE_BIGINT)
+	/* Spec: Number(bigint) does ToNumeric then explicit BigInt -> Number
+	 * conversion (mp_get_double).  This DIFFERS from ToNumber(bigint)
+	 * which throws TypeError; the Number() builtin is the only path
+	 * that accepts a BigInt and produces a Number. */
+	if (duk_rp_tval_is_bigint(duk_get_tval(thr, 0))) {
+		double d = duk_rp_bigint_to_double(thr, 0);
+		duk_pop(thr);
+		duk_push_number(thr, d);
+	} else {
+		duk_to_number(thr, 0);
+	}
+#else
 	duk_to_number(thr, 0);
+#endif
 	duk_set_top(thr, 1);
 	DUK_ASSERT_TOP(thr, 1);
 

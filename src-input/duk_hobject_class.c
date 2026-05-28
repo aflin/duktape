@@ -124,6 +124,10 @@ DUK_INTERNAL duk_uint8_t duk_class_number_to_stridx[32] = {
 	DUK_STRIDX_UINT32_ARRAY,
 	DUK_STRIDX_FLOAT32_ARRAY,
 	DUK_STRIDX_FLOAT64_ARRAY,
+#if defined(DUK_RP_USE_BIGINT)
+	DUK_STRIDX_UC_BIGINT,    /* slot 30: rampart BigInt -> "[object BigInt]" */
+#else
 	DUK_STRIDX_EMPTY_STRING, /* UNUSED, intentionally empty */
+#endif
 	DUK_STRIDX_EMPTY_STRING, /* UNUSED, intentionally empty */
 };

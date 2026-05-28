@@ -67,23 +67,23 @@ def unicode_to_bytes(x):
 
 # Convert bytes to Unicode, identifying bytes as U+0000 to U+00FF.
 def bytes_to_unicode(x):
-    if isinstance(x, unicode):
+    if isinstance(x, str):
         return x
-    tmp = u''
+    tmp = ''
     for c in x:
-        tmp += unichr(ord(c))
-    assert(isinstance(tmp, unicode))
+        tmp += chr(ord(c))
+    assert(isinstance(tmp, str))
     return tmp
 
 # Convert all strings in an object to bytes recursively.  Useful for
 # normalizing all strings in a YAML document.
 def recursive_strings_to_bytes(doc):
     def f(x):
-        if isinstance(x, unicode):
+        if isinstance(x, str):
             return unicode_to_bytes(x)
         if isinstance(x, dict):
             res = {}
-            for k in x.keys():
+            for k in list(x.keys()):
                 res[f(k)] = f(x[k])
             return res
         if isinstance(x, list):
@@ -103,7 +103,7 @@ def recursive_bytes_to_strings(doc):
             return bytes_to_unicode(x)
         if isinstance(x, dict):
             res = {}
-            for k in x.keys():
+            for k in list(x.keys()):
                 res[f(k)] = f(x[k])
             return res
         if isinstance(x, list):
@@ -175,7 +175,7 @@ def metadata_remove_disabled(meta, active_opts):
         pi = v.get('present_if', None)
         if pi is None:
             return True
-        if isinstance(pi, (str, unicode)):
+        if isinstance(pi, str):
             pi = [ pi ]
         if not isinstance(pi, list):
             raise Exception('invalid present_if syntax: %r' % pi)
@@ -241,11 +241,11 @@ def metadata_delete_dangling_references_to_object(meta, obj_id):
 
 # Merge a user YAML file into current metadata.
 def metadata_merge_user_objects(meta, user_meta):
-    if user_meta.has_key('add_objects'):
+    if 'add_objects' in user_meta:
         raise Exception('"add_objects" removed, use "objects" with "add: True"')
-    if user_meta.has_key('replace_objects'):
+    if 'replace_objects' in user_meta:
         raise Exception('"replace_objects" removed, use "objects" with "replace: True"')
-    if user_meta.has_key('modify_objects'):
+    if 'modify_objects' in user_meta:
         raise Exception('"modify_objects" removed, use "objects" with "modify: True"')
 
     for o in user_meta.get('objects', []):
@@ -345,7 +345,7 @@ def metadata_normalize_symbol_strings(meta):
 def metadata_normalize_nargs_length(meta):
     # Default 'nargs' from 'length' for top level function objects.
     for o in meta['objects']:
-        if o.has_key('nargs'):
+        if 'nargs' in o:
             continue
         if not o.get('callable', False):
             continue
@@ -356,7 +356,7 @@ def metadata_normalize_nargs_length(meta):
             assert(isinstance(p['value'], int))
             o['nargs'] = p['value']
             break
-        assert(o.has_key('nargs'))
+        assert('nargs' in o)
 
     # Default 'nargs' from 'length' for function property shorthand.
     for o in meta['objects']:
@@ -364,10 +364,10 @@ def metadata_normalize_nargs_length(meta):
             if not (isinstance(p['value'], dict) and p['value']['type'] == 'function'):
                 continue
             pval = p['value']
-            if not pval.has_key('length'):
+            if 'length' not in pval:
                 logger.debug('Default length for function shorthand: %r' % p)
                 pval['length'] = 0
-            if not pval.has_key('nargs'):
+            if 'nargs' not in pval:
                 logger.debug('Default nargs for function shorthand: %r' % p)
                 pval['nargs'] = pval['length']
 
@@ -455,7 +455,7 @@ def metadata_normalize_shorthand(meta):
     def decodeGetterShorthand(key, funprop):
         assert(funprop['value']['type'] == 'accessor')
         val = funprop['value']
-        if not val.has_key('getter'):
+        if 'getter' not in val:
             return None
         return addAccessor(funprop,
                            val['getter_magic'],
@@ -467,7 +467,7 @@ def metadata_normalize_shorthand(meta):
     def decodeSetterShorthand(key, funprop):
         assert(funprop['value']['type'] == 'accessor')
         val = funprop['value']
-        if not val.has_key('setter'):
+        if 'setter' not in val:
             return None
         return addAccessor(funprop,
                            val['setter_magic'],
@@ -478,7 +478,7 @@ def metadata_normalize_shorthand(meta):
 
     def decodeStructuredValue(val):
         logger.debug('Decode structured value: %r' % val)
-        if isinstance(val, (int, long, float, str)):
+        if isinstance(val, (int, float, str)):
             return val  # as is
         elif isinstance(val, (dict)):
             # Object: decode recursively
@@ -517,7 +517,7 @@ def metadata_normalize_shorthand(meta):
     def clonePropShared(prop):
         res = {}
         for k in [ 'key', 'attributes', 'auto_lightfunc' ]:
-            if prop.has_key(k):
+            if k in prop:
                 res[k] = prop[k]
         return res
 
@@ -539,7 +539,7 @@ def metadata_normalize_shorthand(meta):
                 prop['value'] = { 'type': 'object', 'id': subfun['id'] }
                 repl_props.append(prop)
             elif isinstance(val['value'], dict) and val['value']['type'] == 'accessor' and \
-                 (val['value'].has_key('getter') or val['value'].has_key('setter')):
+                 ('getter' in val['value'] or 'setter' in val['value']):
                 # Accessor normal and shorthand forms both use the type 'accessor',
                 # but are differentiated by properties.
                 sub_getter = decodeGetterShorthand(val['key'], val)
@@ -671,7 +671,7 @@ def metadata_add_ram_filtered_object_list(meta):
     objlist = []
     for o in meta['objects']:
         keep = o.get('bidx_used', False)
-        if o.has_key('native') and not o.has_key('bidx'):
+        if 'native' in o and 'bidx' not in o:
             # Handled inline by run-time init code
             pass
         else:
@@ -704,7 +704,7 @@ def metadata_normalize_missing_strings(meta, user_meta):
                 logger.debug('Add missing string: %r' % key)
                 meta['strings'].append({ 'str': key, '_auto_add_ref': True })
                 strs_have[key] = True
-            if prop.has_key('value') and isinstance(prop['value'], (str, unicode)):
+            if 'value' in prop and isinstance(prop['value'], str):
                 val = unicode_to_bytes(prop['value'])  # should already be, just in case
                 if not strs_have.get(val):
                     logger.debug('Add missing string: %r' % val)
@@ -744,7 +744,7 @@ def metadata_convert_lightfuncs(meta):
                 # Don't convert if function has more properties than
                 # we're willing to sacrifice.
                 logger.debug('   - Check %r . %s' % (o.get('id', None), p2['key']))
-                if p2['key'] == 'length' and isinstance(p2['value'], (int, long)):
+                if p2['key'] == 'length' and isinstance(p2['value'], int):
                     lf_len = p2['value']
                 if p2['key'] not in [ 'length', 'name' ]:
                     reasons.append('nonallowed-property')
@@ -754,7 +754,7 @@ def metadata_convert_lightfuncs(meta):
                 reasons.append('no-auto-lightfunc')
 
             # lf_len comes from actual property table (after normalization)
-            if targ.has_key('magic'):
+            if 'magic' in targ:
                 try:
                     # Magic values which resolve to 'bidx' indices cannot
                     # be resolved here yet, because the bidx map is not
@@ -762,7 +762,7 @@ def metadata_convert_lightfuncs(meta):
                     # for now.  In practice this doesn't matter.
                     lf_magic = resolve_magic(targ.get('magic'), {})  # empty map is a "fake" bidx map
                     logger.debug('resolved magic ok -> %r' % lf_magic)
-                except Exception, e:
+                except Exception as e:
                     logger.debug('Failed to resolve magic for %r: %r' % (p['key'], e))
                     reasons.append('magic-resolve-failed')
                     lf_magic = 0xffffffff  # dummy, will be out of bounds
@@ -816,7 +816,7 @@ def metadata_remove_orphan_objects(meta):
             reachable[o['id']] = True
 
     while True:
-        reachable_count = len(reachable.keys())
+        reachable_count = len(list(reachable.keys()))
 
         def _markId(obj_id):
             if obj_id is None:
@@ -824,7 +824,7 @@ def metadata_remove_orphan_objects(meta):
             reachable[obj_id] = True
 
         for o in meta['objects']:
-            if not reachable.has_key(o['id']):
+            if o['id'] not in reachable:
                 continue
             _markId(o.get('internal_prototype', None))
             for p in o['properties']:
@@ -841,8 +841,8 @@ def metadata_remove_orphan_objects(meta):
                     _markId(v.get('setter_id'))
 
         logger.debug('Mark reachable: reachable count initially %d, now %d' % \
-                     (reachable_count, len(reachable.keys())))
-        if reachable_count == len(reachable.keys()):
+                     (reachable_count, len(list(reachable.keys()))))
+        if reachable_count == len(list(reachable.keys())):
             break
 
     num_deleted = 0
@@ -850,7 +850,7 @@ def metadata_remove_orphan_objects(meta):
     while deleted:
         deleted = False
         for i,o in enumerate(meta['objects']):
-            if not reachable.has_key(o['id']):
+            if o['id'] not in reachable:
                 logger.debug('object %s not reachable, dropping' % o['id'])
                 meta['objects'].pop(i)
                 deleted = True
@@ -867,7 +867,7 @@ def metadata_add_string_define_names(strlist, special_defs):
     for s in strlist:
         v = s['str']
 
-        if special_defs.has_key(v):
+        if v in special_defs:
             s['define'] = 'DUK_STRIDX_' + special_defs[v]
             continue
 
@@ -894,7 +894,7 @@ def metadata_add_string_used_stridx(strlist, used_stridx_meta):
 
     # strings whose define is referenced
     for s in strlist:
-        if s.has_key('define') and defs_needed.has_key(s['define']):
+        if 'define' in s and s['define'] in defs_needed:
             s['stridx_used'] = True
             defs_found[s['define']] = True
 
@@ -909,7 +909,7 @@ def metadata_add_string_used_stridx(strlist, used_stridx_meta):
     defs_found['DUK_STRIDX_END_RESERVED'] = True
     defs_found['DUK_STRIDX_TO_TOK'] = True
     for k in sorted(defs_needed.keys()):
-        if not defs_found.has_key(k):
+        if k not in defs_found:
             raise Exception('source code needs define %s not provided by strings' % repr(k))
 
 # Merge duplicate strings in string metadata.
@@ -925,8 +925,8 @@ def metadata_merge_string_entries(strlist):
     for s in tmp:
         prev = str_map.get(s['str'])
         if prev is not None:
-            for k in s.keys():
-                if prev.has_key(k) and prev[k] != s[k]:
+            for k in list(s.keys()):
+                if k in prev and prev[k] != s[k]:
                     raise Exception('fail to merge string entry, conflicting keys: %r <-> %r' % (prev, s))
                 prev[k] = s[k]
         else:
@@ -971,7 +971,7 @@ def metadata_order_builtin_strings(input_strlist, keyword_list, strip_unused_str
         keywords.append(str_index[s])
         kw_index[s] = True
     for idx,s in enumerate(tmp_strs):
-        if not kw_index.has_key(s['str']):
+        if s['str'] not in kw_index:
             strs.append(s)
 
     # Sort the strings by category number; within category keep
@@ -998,10 +998,10 @@ def metadata_order_builtin_strings(input_strlist, keyword_list, strip_unused_str
         else:
             return 2
 
-    def sortCmp(a,b):
-        return cmp( (getCat(a),a['_idx']), (getCat(b),b['_idx']) )
+    def sortKey(a):
+        return (getCat(a), a['_idx'])
 
-    strs.sort(cmp=sortCmp)
+    strs.sort(key=sortKey)
 
     for idx,s in enumerate(strs):
         # Remove temporary _idx properties
@@ -1016,7 +1016,7 @@ def metadata_order_builtin_strings(input_strlist, keyword_list, strip_unused_str
 # Dump metadata into a JSON file.
 def dump_metadata(meta, fn):
     tmp = json.dumps(recursive_bytes_to_strings(meta), indent=4)
-    with open(fn, 'wb') as f:
+    with open(fn, 'w') as f:
         f.write(tmp)
     logger.debug('Wrote metadata dump to %s' % fn)
 
@@ -1024,24 +1024,24 @@ def dump_metadata(meta, fn):
 # merge and normalize, prepare various indexes etc.
 def load_metadata(opts, rom=False, build_info=None, active_opts=None):
     # Load built-in strings and objects.
-    with open(opts.strings_metadata, 'rb') as f:
-        strings_metadata = recursive_strings_to_bytes(yaml.load(f))
-    with open(opts.objects_metadata, 'rb') as f:
-        objects_metadata = recursive_strings_to_bytes(yaml.load(f))
+    with open(opts.strings_metadata, 'r') as f:
+        strings_metadata = recursive_strings_to_bytes(yaml.safe_load(f))
+    with open(opts.objects_metadata, 'r') as f:
+        objects_metadata = recursive_strings_to_bytes(yaml.safe_load(f))
 
     # Merge strings and objects metadata as simple top level key merge.
     meta = {}
-    for k in objects_metadata.keys():
+    for k in list(objects_metadata.keys()):
         meta[k] = objects_metadata[k]
-    for k in strings_metadata.keys():
+    for k in list(strings_metadata.keys()):
         meta[k] = strings_metadata[k]
 
     # Add user objects.
     user_meta = {}
     for fn in opts.builtin_files:
         logger.debug('Merging user builtin metadata file %s' % fn)
-        with open(fn, 'rb') as f:
-            user_meta = recursive_strings_to_bytes(yaml.load(f))
+        with open(fn, 'r') as f:
+            user_meta = recursive_strings_to_bytes(yaml.safe_load(f))
         metadata_merge_user_objects(meta, user_meta)
 
     # Remove disabled objects and properties.  Also remove objects and
@@ -1103,7 +1103,7 @@ def load_metadata(opts, rom=False, build_info=None, active_opts=None):
     # The meta['strings_stridx'] result will be in proper order and stripped of
     # any strings which don't need a stridx.
     metadata_add_string_define_names(meta['strings'], meta['special_define_names'])
-    with open(opts.used_stridx_metadata, 'rb') as f:
+    with open(opts.used_stridx_metadata, 'r') as f:
         metadata_add_string_used_stridx(meta['strings'], json.loads(f.read()))
     meta['strings_stridx'] = metadata_order_builtin_strings(meta['strings'], meta['reserved_word_token_order'])
 
@@ -1113,8 +1113,8 @@ def load_metadata(opts, rom=False, build_info=None, active_opts=None):
     if rom:
         for fn in opts.builtin_files:
             # XXX: awkward second pass
-            with open(fn, 'rb') as f:
-                user_meta = recursive_strings_to_bytes(yaml.load(f))
+            with open(fn, 'r') as f:
+                user_meta = recursive_strings_to_bytes(yaml.safe_load(f))
                 metadata_normalize_missing_strings(meta, user_meta)
         metadata_normalize_missing_strings(meta, {})  # in case no files
 
@@ -1203,7 +1203,7 @@ def load_metadata(opts, rom=False, build_info=None, active_opts=None):
         assert(meta['_objid_to_bidx'][o['id']] == meta['_objid_to_idx'][o['id']])
         meta['_bidx_to_objid'][i] = o['id']
         meta['_bidx_to_object'][i] = o
-    if meta.has_key('objects_ram_toplevel'):
+    if 'objects_ram_toplevel' in meta:
         for i,o in enumerate(meta['objects_ram_toplevel']):
             meta['_objid_to_ramidx'][o['id']] = i
 
@@ -1325,7 +1325,7 @@ def magic_typedarray_constructor(elem, shift):
 def resolve_magic(elem, objid_to_bidx):
     if elem is None:
         return 0
-    if isinstance(elem, (int, long)):
+    if isinstance(elem, int):
         v = int(elem)
         if not (v >= -0x8000 and v <= 0x7fff):
             raise Exception('invalid plain value for magic: %s' % repr(v))
@@ -1333,7 +1333,7 @@ def resolve_magic(elem, objid_to_bidx):
     if not isinstance(elem, dict):
         raise Exception('invalid magic: %r' % elem)
 
-    assert(elem.has_key('type'))
+    assert('type' in elem)
     if elem['type'] == 'bidx':
         # Maps to thr->builtins[].
         v = elem['id']
@@ -1457,6 +1457,12 @@ def bitpack_string(be, s, stats=None):
     #
     #    0-25    'a' ... 'z' or 'A' ... 'Z' depending on uppercase mode
     #    26-31   special controls, see code below
+
+    # Under Python 3 the input may arrive as bytes (from YAML escape
+    # processing); normalise to a str of latin-1 codepoints so the
+    # per-char ord() calls below behave the same as under Python 2.
+    if isinstance(s, (bytes, bytearray)):
+        s = s.decode('latin-1')
 
     LOOKUP1 = 26
     LOOKUP2 = 27
@@ -1702,7 +1708,7 @@ def gen_ramobj_initdata_for_object(meta, be, bi, string_to_stridx, natfunc_name_
         if bi.get('varargs', False):
             be.bits(1, 1)  # flag: non-default nargs
             be.bits(NARGS_VARARGS_MARKER, NARGS_BITS)
-        elif bi.has_key('nargs') and bi['nargs'] != length:
+        elif 'nargs' in bi and bi['nargs'] != length:
             be.bits(1, 1)  # flag: non-default nargs
             be.bits(bi['nargs'], NARGS_BITS)
         else:
@@ -1713,7 +1719,7 @@ def gen_ramobj_initdata_for_object(meta, be, bi, string_to_stridx, natfunc_name_
         # (have [[Call]]) but not all are constructable (have
         # [[Construct]]).  Flag that.
 
-        assert(bi.has_key('callable'))
+        assert('callable' in bi)
         assert(bi['callable'] == True)
 
         assert(prop_name is not None)
@@ -1763,7 +1769,7 @@ def gen_ramobj_initdata_for_props(meta, be, bi, string_to_stridx, natfunc_name_t
     props = [x for x in bi['properties']]  # clone
 
     # internal prototype: not an actual property so not in property list
-    if bi.has_key('internal_prototype'):
+    if 'internal_prototype' in bi:
         _bidx_or_none(bi['internal_prototype'])
     else:
         _bidx_or_none(None)
@@ -1811,8 +1817,8 @@ def gen_ramobj_initdata_for_props(meta, be, bi, string_to_stridx, natfunc_name_t
     for prop in props:
         if isinstance(prop['value'], dict) and \
            prop['value']['type'] == 'object' and \
-           metadata_lookup_object(meta, prop['value']['id']).has_key('native') and \
-           not metadata_lookup_object(meta, prop['value']['id']).has_key('bidx'):
+           'native' in metadata_lookup_object(meta, prop['value']['id']) and \
+           'bidx' not in metadata_lookup_object(meta, prop['value']['id']):
             functions.append(prop)
         else:
             values.append(prop)
@@ -1855,7 +1861,7 @@ def gen_ramobj_initdata_for_props(meta, be, bi, string_to_stridx, natfunc_name_t
             # Avoid converting a manually specified NaN temporarily into
             # a float to avoid risk of e.g. NaN being replaced by another.
             if isinstance(val, dict):
-                val = val['bytes'].decode('hex')
+                val = bytes.fromhex(val['bytes'])
                 assert(len(val) == 8)
             else:
                 val = struct.pack('>d', float(val))
@@ -1869,20 +1875,23 @@ def gen_ramobj_initdata_for_props(meta, be, bi, string_to_stridx, natfunc_name_t
                 'mixed':  [ 3, 2, 1, 0, 7, 6, 5, 4 ]    # some arm platforms
             }[double_byte_order]
 
-            data = ''.join([ val[indexlist[idx]] for idx in xrange(8) ])
+            data = bytes([ val[indexlist[idx]] for idx in range(8) ])
 
-            logger.debug('DOUBLE: %s -> %s' % (val.encode('hex'), data.encode('hex')))
+            logger.debug('DOUBLE: %s -> %s' % (val.hex(), data.hex()))
 
             if len(data) != 8:
                 raise Exception('internal error')
             be.string(data)
-        elif isinstance(val, str) or isinstance(val, unicode):
-            if isinstance(val, unicode):
+        elif isinstance(val, (str, bytes)):
+            if isinstance(val, str):
                 # Note: non-ASCII characters will not currently work,
                 # because bits/char is too low.
-                val = val.encode('utf-8')
+                # Latin-1 (not UTF-8) preserves Python 2's `str` = bytes
+                # semantics: each char becomes a single byte, matching
+                # the bitpacker's 8-bits-per-symbol assumption.
+                val = val.encode('latin-1')
 
-            if string_to_stridx.has_key(val):
+            if val in string_to_stridx:
                 # String value is in built-in string table -> encode
                 # using a string index.  This saves some space,
                 # especially for the 'name' property of errors
@@ -1906,12 +1915,12 @@ def gen_ramobj_initdata_for_props(meta, be, bi, string_to_stridx, natfunc_name_t
                 setter_natfun = None
                 getter_magic = 0
                 setter_magic = 0
-                if val.has_key('getter_id'):
+                if 'getter_id' in val:
                     getter_fn = metadata_lookup_object(meta, val['getter_id'])
                     getter_natfun = getter_fn['native']
                     assert(getter_fn['nargs'] == 0)
                     getter_magic = getter_fn['magic']
-                if val.has_key('setter_id'):
+                if 'setter_id' in val:
                     setter_fn = metadata_lookup_object(meta, val['setter_id'])
                     setter_natfun = setter_fn['native']
                     assert(setter_fn['nargs'] == 1)
@@ -1953,7 +1962,7 @@ def gen_ramobj_initdata_for_props(meta, be, bi, string_to_stridx, natfunc_name_t
         if funobj.get('varargs', False):
             be.bits(1, 1)  # flag: non-default nargs
             be.bits(NARGS_VARARGS_MARKER, NARGS_BITS)
-        elif funobj.has_key('nargs') and funobj['nargs'] != length:
+        elif 'nargs' in funobj and funobj['nargs'] != length:
             be.bits(1, 1)  # flag: non-default nargs
             be.bits(funobj['nargs'], NARGS_BITS)
         else:
@@ -1989,21 +1998,21 @@ def get_ramobj_native_func_maps(meta):
     native_funcs.append(None)  # natidx 0 is reserved for NULL
 
     for o in meta['objects']:
-        if o.has_key('native'):
+        if 'native' in o:
             native_funcs_found[o['native']] = True
         for v in o['properties']:
             val = v['value']
             if isinstance(val, dict):
                 if val['type'] == 'accessor':
-                    if val.has_key('getter_id'):
+                    if 'getter_id' in val:
                         getter = metadata_lookup_object(meta, val['getter_id'])
                         native_funcs_found[getter['native']] = True
-                    if val.has_key('setter_id'):
+                    if 'setter_id' in val:
                         setter = metadata_lookup_object(meta, val['setter_id'])
                         native_funcs_found[setter['native']] = True
                 if val['type'] == 'object':
                     target = metadata_lookup_object(meta, val['id'])
-                    if target.has_key('native'):
+                    if 'native' in target:
                         native_funcs_found[target['native']] = True
                 if val['type'] == 'lightfunc':
                     # No lightfunc support for RAM initializer now.
@@ -2141,10 +2150,10 @@ def rom_get_value_initializer(meta, val, bi_str_map, bi_obj_map):
     def double_bytes_initializer(val):
         # Portable and exact float initializer.
         assert(isinstance(val, str) and len(val) == 16)  # hex encoded bytes
-        val = val.decode('hex')
+        valb = bytes.fromhex(val)
         tmp = []
-        for i in xrange(8):
-            t = ord(val[i])
+        for i in range(8):
+            t = valb[i]
             if t >= 128:
                 tmp.append('%dU' % t)
             else:
@@ -2165,10 +2174,10 @@ def rom_get_value_initializer(meta, val, bi_str_map, bi_obj_map):
             bval = 1
         init_lit = 'DUK__TVAL_BOOLEAN(%d)' % bval
     elif isinstance(v, (int, float)):
-        fval = struct.pack('>d', float(v)).encode('hex')
+        fval = struct.pack('>d', float(v)).hex()
         init_type = 'duk_rom_tval_number'
         init_lit = tval_number_initializer(fval)
-    elif isinstance(v, (str, unicode)):
+    elif isinstance(v, str):
         init_type = 'duk_rom_tval_string'
         init_lit = 'DUK__TVAL_STRING(&%s)' % bi_str_map[v]
     elif isinstance(v, (dict)):
@@ -2187,17 +2196,17 @@ def rom_get_value_initializer(meta, val, bi_str_map, bi_obj_map):
         elif v['type'] == 'accessor':
             getter_ref = 'NULL'
             setter_ref = 'NULL'
-            if v.has_key('getter_id'):
+            if 'getter_id' in v:
                 getter_object = metadata_lookup_object(meta, v['getter_id'])
                 getter_ref = '&%s' % bi_obj_map[getter_object['id']]
-            if v.has_key('setter_id'):
+            if 'setter_id' in v:
                 setter_object = metadata_lookup_object(meta, v['setter_id'])
                 setter_ref = '&%s' % bi_obj_map[setter_object['id']]
             init_type = 'duk_rom_tval_accessor'
             init_lit = 'DUK__TVAL_ACCESSOR(%s, %s)' % (getter_ref, setter_ref)
         elif v['type'] == 'lightfunc':
             # Match DUK_LFUNC_FLAGS_PACK() in duk_tval.h.
-            if v.has_key('length'):
+            if 'length' in v:
                 assert(v['length'] >= 0 and v['length'] <= 15)
                 lf_length = v['length']
             else:
@@ -2207,7 +2216,7 @@ def rom_get_value_initializer(meta, val, bi_str_map, bi_obj_map):
             else:
                 assert(v['nargs'] >= 0 and v['nargs'] <= 14)
                 lf_nargs = v['nargs']
-            if v.has_key('magic'):
+            if 'magic' in v:
                 assert(v['magic'] >= -0x80 and v['magic'] <= 0x7f)
                 lf_magic = v['magic'] & 0xff
             else:
@@ -2322,7 +2331,7 @@ def rom_emit_strings_source(genc, meta):
     chain_lens = {}
     for lst in romstr_hash:
         chainlen = len(lst)
-        if not chain_lens.has_key(chainlen):
+        if chainlen not in chain_lens:
             chain_lens[chainlen] = 0
         chain_lens[chainlen] += 1
     tmp = []
@@ -2360,13 +2369,13 @@ def rom_emit_strings_source(genc, meta):
                 flags.append('DUK_HSTRING_FLAG_HIDDEN')
             if v in [ 'eval', 'arguments' ]:
                 flags.append('DUK_HSTRING_FLAG_EVAL_OR_ARGUMENTS')
-            if reserved_words.has_key(v):
+            if v in reserved_words:
                 flags.append('DUK_HSTRING_FLAG_RESERVED_WORD')
-            if strict_reserved_words.has_key(v):
+            if v in strict_reserved_words:
                 flags.append('DUK_HSTRING_FLAG_STRICT_RESERVED_WORD')
 
             h_next = 'NULL'
-            if romstr_next.has_key(v):
+            if v in romstr_next:
                 h_next = '&' + bi_str_map[romstr_next[v]]
 
             tmp += 'DUK__STRINIT(%s,%d,%s,%s,%d,%d,%s),' % \
@@ -2790,7 +2799,7 @@ def rom_emit_objects(genc, meta, bi_str_map):
             props = '&duk_prop_%d' % idx
         props_enc16 = compress_rom_ptr(props)
 
-        if obj.has_key('internal_prototype'):
+        if 'internal_prototype' in obj:
             iproto = '&%s' % bi_obj_map[obj['internal_prototype']]
         else:
             iproto = 'NULL'
@@ -2805,7 +2814,7 @@ def rom_emit_objects(genc, meta, bi_str_map):
             nativefunc = obj['native']
             if obj.get('varargs', False):
                 nargs = 'DUK_VARARGS'
-            elif obj.has_key('nargs'):
+            elif 'nargs' in obj:
                 nargs = '%d' % obj['nargs']
             else:
                 assert(False)  # 'nargs' should be defaulted from 'length' at metadata load
@@ -2975,18 +2984,18 @@ def emit_header_native_function_declarations(genc, meta):
     emitted = {}  # To suppress duplicates
     funclist = []
     def _emit(fname):
-        if not emitted.has_key(fname):
+        if fname not in emitted:
             emitted[fname] = True
             funclist.append(fname)
 
     for o in meta['objects']:
-        if o.has_key('native'):
+        if 'native' in o:
             _emit(o['native'])
 
         for p in o['properties']:
             v = p['value']
             if isinstance(v, dict) and v['type'] == 'lightfunc':
-                assert(v.has_key('native'))
+                assert('native' in v)
                 _emit(v['native'])
                 logger.debug('Lightfunc function declaration: %r' % v['native'])
 
@@ -3057,7 +3066,7 @@ def main():
 
     active_opts = {}
     if opts.active_options is not None:
-        with open(opts.active_options, 'rb') as f:
+        with open(opts.active_options, 'r') as f:
             active_opts = json.loads(f.read())
 
     ram_meta = load_metadata(opts, rom=False, build_info=build_info, active_opts=active_opts)
@@ -3179,23 +3188,26 @@ def main():
     gc_hdr.emitLine('#endif  /* DUK_USE_ROM_OBJECTS */')
     gc_hdr.emitLine('#endif  /* DUK_BUILTINS_H_INCLUDED */')
 
-    with open(opts.out_source, 'wb') as f:
+    with open(opts.out_source, 'w') as f:
         f.write(gc_src.getString())
     logger.debug('Wrote built-ins source to ' + opts.out_source)
 
-    with open(opts.out_header, 'wb') as f:
+    with open(opts.out_header, 'w') as f:
         f.write(gc_hdr.getString())
     logger.debug('Wrote built-ins header to ' + opts.out_header)
 
     # Write a JSON file with build metadata, e.g. built-in strings.
 
-    ver = long(build_info['duk_version'])
+    ver = int(build_info['duk_version'])
     plain_strs = []
     base64_strs = []
     str_objs = []
+    import base64 as _b64
     for s in ram_meta['strings_stridx']:  # XXX: provide all lists?
         t1 = bytes_to_unicode(s['str'])
-        t2 = unicode_to_bytes(s['str']).encode('base64').strip()
+        # unicode_to_bytes returns a latin-1 str (legacy Python 2 shape);
+        # encode to actual bytes for base64.
+        t2 = _b64.b64encode(unicode_to_bytes(s['str']).encode('latin-1')).decode('ascii').strip()
         plain_strs.append(t1)
         base64_strs.append(t2)
         str_objs.append({
@@ -3213,7 +3225,7 @@ def main():
         'builtin_strings_info': str_objs
     }
 
-    with open(opts.out_metadata_json, 'wb') as f:
+    with open(opts.out_metadata_json, 'w') as f:
         f.write(json.dumps(meta, indent=4, sort_keys=True, ensure_ascii=True))
     logger.debug('Wrote built-ins metadata to ' + opts.out_metadata_json)
 

@@ -25,7 +25,7 @@ import dukutil
 def read_unicode_data(unidata, catsinc, catsexc, filterfunc):
     "Read UnicodeData.txt, including lines matching catsinc unless excluded by catsexc or filterfunc."
     res = []
-    f = open(unidata, 'rb')
+    f = open(unidata, 'r')
 
     def filter_none(cp):
         return True
@@ -45,11 +45,11 @@ def read_unicode_data(unidata, catsinc, catsexc, filterfunc):
         parts = line.split(';')
 
         codepoint = parts[0]
-        if not filterfunc(long(codepoint, 16)):
+        if not filterfunc(int(codepoint, 16)):
             continue
 
         category = parts[2]
-        if exclude_cat_exact.has_key(category):
+        if category in exclude_cat_exact:
             continue  # quick reject
 
         rejected = False
@@ -60,7 +60,7 @@ def read_unicode_data(unidata, catsinc, catsexc, filterfunc):
         if rejected:
             continue
 
-        if include_cat_exact.has_key(category):
+        if category in include_cat_exact:
             res.append(line)
             continue
 
@@ -75,14 +75,7 @@ def read_unicode_data(unidata, catsinc, catsexc, filterfunc):
     f.close()
 
     # Sort based on Unicode codepoint
-    def mycmp(a,b):
-        t1 = a.split(';')
-        t2 = b.split(';')
-        n1 = long(t1[0], 16)
-        n2 = long(t2[0], 16)
-        return cmp(n1, n2)
-
-    res.sort(cmp=mycmp)
+    res.sort(key=lambda a: int(a.split(';')[0], 16))
 
     return res
 
@@ -94,7 +87,7 @@ def scan_ranges(lines):
 
     for line in lines:
         t = line.split(';')
-        n = long(t[0], 16)
+        n = int(t[0], 16)
         if range_start is None:
             range_start = n
         else:
@@ -118,7 +111,7 @@ def generate_png(lines, fname):
     m = {}
     for line in lines:
         t = line.split(';')
-        n = long(t[0], 16)
+        n = int(t[0], 16)
         m[n] = 1
 
     codepoints = 0x10ffff + 1
@@ -127,11 +120,11 @@ def generate_png(lines, fname):
     im = Image.new('RGB', (width, height))
     black = (0,0,0)
     white = (255,255,255)
-    for cp in xrange(codepoints):
+    for cp in range(codepoints):
         y = cp / width
         x = cp % width
 
-        if m.has_key(long(cp)):
+        if int(cp) in m:
             im.putpixel((x,y), black)
         else:
             im.putpixel((x,y), white)
@@ -303,8 +296,8 @@ def main():
     if opts.exclude_categories != 'NONE':
         catsexc = opts.exclude_categories.split(',')
 
-    print 'CATSEXC: %s' % repr(catsexc)
-    print 'CATSINC: %s' % repr(catsinc)
+    print('CATSEXC: %s' % repr(catsexc))
+    print('CATSINC: %s' % repr(catsinc))
 
     # pseudocategories
     filter_ascii = ('ASCII' in catsexc)
@@ -340,7 +333,7 @@ def main():
     #    else:
     #        print('0x%04x ... 0x%04x' % (i[0], i[1]))
     #print('')
-    print('%d ranges total' % len(ranges))
+    print(('%d ranges total' % len(ranges)))
 
     # Generate match table
     #print('')
@@ -350,22 +343,22 @@ def main():
     #matchtable2 = generate_match_table2(ranges)
     matchtable3, freq = generate_match_table3(ranges)
     #print 'match table: %s' % repr(matchtable3)
-    print 'match table length: %d bytes' % len(matchtable3)
-    print 'encoding freq:'
-    for i in xrange(len(freq)):
+    print('match table length: %d bytes' % len(matchtable3))
+    print('encoding freq:')
+    for i in range(len(freq)):
         if freq[i] == 0:
             continue
-        print '  %6d: %d' % (i, freq[i])
+        print('  %6d: %d' % (i, freq[i]))
 
     print('')
-    print('MATCH C TABLE -> file %s' % repr(opts.out_header))
+    print(('MATCH C TABLE -> file %s' % repr(opts.out_header)))
 
     # Create C source and header files
     genc = dukutil.GenerateC()
     genc.emitHeader('extract_chars.py')
     genc.emitArray(matchtable3, opts.table_name, size=len(matchtable3), typename='duk_uint8_t', intvalues=True, const=True)
     if opts.out_source is not None:
-        f = open(opts.out_source, 'wb')
+        f = open(opts.out_source, 'w')
         f.write(genc.getString())
         f.close()
 
@@ -373,7 +366,7 @@ def main():
     genc.emitHeader('extract_chars.py')
     genc.emitLine('extern const duk_uint8_t %s[%d];' % (opts.table_name, len(matchtable3)))
     if opts.out_header is not None:
-        f = open(opts.out_header, 'wb')
+        f = open(opts.out_header, 'w')
         f.write(genc.getString())
         f.close()
 

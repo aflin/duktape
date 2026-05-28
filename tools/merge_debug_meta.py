@@ -33,9 +33,9 @@ if __name__ == '__main__':
 
     res = {}
     def merge(fn):
-        with open(fn, 'rb') as f:
-            doc = yaml.load(f)
-        for k in doc.keys():
+        with open(fn, 'r') as f:
+            doc = yaml.safe_load(f)
+        for k in list(doc.keys()):
             res[k] = doc[k]
 
     merge(opts.class_names)
@@ -43,6 +43,6 @@ if __name__ == '__main__':
     merge(opts.debug_errors)
     merge(opts.opcodes)
 
-    with open(opts.output, 'wb') as f:
+    with open(opts.output, 'w') as f:
         f.write(json.dumps(res, indent=4) + '\n')
     logger.debug('Wrote merged debugger metadata to ' + str(opts.output))

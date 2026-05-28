@@ -40,6 +40,9 @@ strings:
     class_name: true
   - str: "Number"
     class_name: true
+  - str: "BigInt"
+    class_name: true
+    es6: true
   - str: "Date"
     class_name: true
   - str: "RegExp"
@@ -372,6 +375,8 @@ strings:
   - str: "undefined"
   - str: "boolean"
   - str: "number"
+  - str: "bigint"
+    es6: true
   - str: "string"
   - str: "symbol"
     es6: true
@@ -1164,6 +1169,8 @@ special_define_names:
   "Boolean": "UC_BOOLEAN"
   "number": "LC_NUMBER"
   "Number": "UC_NUMBER"
+  "bigint": "LC_BIGINT"
+  "BigInt": "UC_BIGINT"
   "function": "LC_FUNCTION"
   "Function": "UC_FUNCTION"
   "string": "LC_STRING"

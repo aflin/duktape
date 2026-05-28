@@ -11,15 +11,15 @@ import sys
 import json
 
 def main():
-    with open(sys.argv[1], 'rb') as f:
+    with open(sys.argv[1], 'r') as f:
         metadata = json.loads(f.read())
     lineno = int(sys.argv[2])
 
     for e in reversed(metadata['line_map']):
         if lineno >= e['combined_line']:
             orig_lineno = e['original_line'] + (lineno - e['combined_line'])
-            print('%s:%d -> %s:%d' % ('duktape.c', lineno,
-                                      e['original_file'], orig_lineno))
+            print(('%s:%d -> %s:%d' % ('duktape.c', lineno,
+                                      e['original_file'], orig_lineno)))
             break
 
 if __name__ == '__main__':

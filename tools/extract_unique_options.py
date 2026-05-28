@@ -17,7 +17,7 @@ def main():
     opts = {}
 
     for fn in sys.argv[1:]:
-        f = open(fn, 'rb')
+        f = open(fn, 'r')
         for line in f:
             for t in re.findall(re_use, line):
                 if t[-1] != '_':  # skip e.g. 'DUK_USE_'
@@ -27,12 +27,12 @@ def main():
                     opts[t] = True
         f.close()
 
-    k = opts.keys()
+    k = list(opts.keys())
     k.sort()
     for i in k:
         print(i)
 
-    k = uses.keys()
+    k = list(uses.keys())
     k.sort()
     for i in k:
         print(i)

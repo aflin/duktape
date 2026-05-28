@@ -169,8 +169,15 @@ typedef void (*duk_re_range_callback)(void *user, duk_codepoint_t r1, duk_codepo
 #define DUK_TOK_NUMBER 99
 #define DUK_TOK_STRING 100
 #define DUK_TOK_REGEXP 101
-
+#if defined(DUK_RP_USE_BIGINT)
+/* Rampart: BigInt literal '123n'.  str1 holds the digit string;
+ * num is unused.  Parser hands str1 to duk_rp_push_bigint_from_string
+ * to materialise the BigInt constant. */
+#define DUK_TOK_BIGINT 102
+#define DUK_TOK_MAXVAL 102 /* inclusive */
+#else
 #define DUK_TOK_MAXVAL 101 /* inclusive */
+#endif
 
 #define DUK_TOK_INVALID DUK_SMALL_UINT_MAX
 

@@ -115,7 +115,17 @@
 #define DUK_HOBJECT_CLASS_FLOAT32ARRAY      28
 #define DUK_HOBJECT_CLASS_FLOAT64ARRAY      29
 #define DUK_HOBJECT_CLASS_BUFOBJ_MAX        29
+#if defined(DUK_RP_USE_BIGINT)
+/* Rampart contribution: dedicated class slot lets typeof return
+ * 'bigint' and Object.prototype.toString return '[object BigInt]'
+ * without the Symbol.toStringTag dance.  Class number is encoded in
+ * 5 bits (slots 0..31), so this consumes one of two remaining slots. */
+#define DUK_HOBJECT_CLASS_BIGINT            30
+#define DUK_HOBJECT_CLASS_MAX               30
+#define DUK_HOBJECT_CMASK_BIGINT            (1UL << DUK_HOBJECT_CLASS_BIGINT)
+#else
 #define DUK_HOBJECT_CLASS_MAX               29
+#endif
 
 /* Class masks. */
 #define DUK_HOBJECT_CMASK_ALL               ((1UL << (DUK_HOBJECT_CLASS_MAX + 1)) - 1UL)
