@@ -6,8 +6,8 @@ Duktape
 Rampart Additions
 -----------------
 
-This fork of Duktape 2.7.0 is maintained for the [rampart](https://rampart.dev/)
-embedder.  Upstream Duktape sources are unchanged; rampart features are
+This fork of Duktape 2.7.0 is maintained for [rampart](https://rampart.dev/).
+Upstream Duktape sources are unchanged; rampart features are
 added as gated contributions in `src-input/duk_rp_*.c` plus a handful of
 small hooks in existing `src-input/*.c` / `*.h` files.  When the
 `DUK_RP_*` flags are off, the regenerated `duktape.c` is character-
@@ -131,6 +131,19 @@ to upstream 2.7.0.
   every name visible at that tier to its current value.  Used by
   rampart's debugger / REPL integrations.
 
+* **`duk_rp_localize(ctx, level, obj_idx, filter_arr_idx, ignore_conflicts)`**
+  (gated by `DUK_RP_USE_SCOPE_VARS`).  The write-side counterpart to
+  `duk_rp_get_scope_vars`.  Injects the enumerable own properties of
+  the object at `obj_idx` into the declarative environment record of
+  the caller at `level`, so the names become visible as if declared
+  locally (any subsequent `GETVAR` resolves them after register
+  lookups).  Optional Array at `filter_arr_idx` whitelists names;
+  pass any non-Array index to inject all.  `ignore_conflicts`
+  controls whether to silently skip names already register-bound
+  (true) or throw (false).  No scope-chain mutation — reuses the
+  existing env object.  Backs `rampart.globalize()`, which lifts
+  `rampart.utils` onto the global namespace for REPL convenience.
+
 * **`duk_force_interrupt(ctx)`**
   (gated by `DUK_RP_USE_FORCE_INTERRUPT`).  Forces the bytecode
   interrupt counter to fire on the very next executed instruction
@@ -188,13 +201,69 @@ public signatures).
   a BigInt value.  Emits lowercase digits for radix 11..36.
 
 In addition, `DUK_RP_USE_CANCEL` activates a longjmp-based silent
-unwind (`LJ_TYPE_RETURN`) cooperating with the existing
-`DUK_USE_EXEC_TIMEOUT_CHECK` hook.  This is an **embedder callback
-contract**, not a public C function: the embedder supplies
-`int rp_cancel_check(void *udata)` and `void rp_cancel_disarm(void)`
-that the bytecode executor polls.  `rp_cancel_check` returns 0 to
-continue, 1 for a RangeError throw, or 2 for the silent unwind.
-Build with `-lpthread` when this flag is on.
+unwind cooperating with the existing `DUK_USE_EXEC_TIMEOUT_CHECK`
+hook.  Build with `-lpthread` when this flag is on.
+
+This is an **embedder callback contract**, not a public C function
+on the duktape side.  The embedder supplies three pieces:
+
+1. **Polling callbacks** that the bytecode executor invokes:
+   ```c
+   int  rp_cancel_check(void *udata);   /* return 0 continue,
+                                           1 RangeError throw,
+                                           2 silent unwind */
+   void rp_cancel_disarm(void);         /* clear pending cancel */
+   ```
+   `util/rp_config.h` wires these to `DUK_USE_EXEC_TIMEOUT_CHECK` and
+   the new `DUK_USE_EXEC_TIMEOUT_DISARM` macros so the executor calls
+   them automatically.
+
+2. **An arming function** that callers use to request a cancel.
+   Rampart names this `duk_cancel` for consistency with duktape's
+   API style (signature below).  It's not in the duk_rp files --
+   it lives in the embedder.  Pattern from rampart's `cmdline.c`:
+   ```c
+   /* timeout_ms = milliseconds until cancel fires; <0 disarms.
+      print_cb returning 0 => silent unwind, non-zero => RangeError. */
+   void duk_cancel(duk_context *ctx, int timeout_ms,
+                   int (*print_cb)(void)) {
+       set_deadline(timeout_ms);
+       set_print_cb(print_cb);
+       if (timeout_ms >= 0 && ctx)
+           duk_force_interrupt(ctx);   /* duktape API, see above */
+   }
+   ```
+   `duk_force_interrupt` (from the duktape side) ensures the
+   interrupt counter fires within a few instructions rather than
+   waiting for the default 256K-opcode quantum.
+
+3. **Two supporting pieces from the duktape side** that complete
+   the round-trip:
+
+   * **`DUK_LJ_TYPE_RETURN`** — new longjmp type added to the
+     executor.  When `rp_cancel_check` returns 2, the bytecode loop
+     throws an internal `LJ_TYPE_RETURN` instead of an Error.  The
+     longjmp handler walks any in-flight `try/finally` catchers
+     (so cleanup still runs) and exits the executor normally, with
+     the return value already on top of the value stack.  No
+     traceback, no uncaught-error message -- the kind of clean
+     exit rampart's `process.exit()` needs.
+
+   * **`DUK_USE_EXEC_TIMEOUT_DISARM()`** — new no-arg config macro
+     (see `config/config-options/DUK_USE_EXEC_TIMEOUT_DISARM.yaml`).
+     The `LJ_TYPE_RETURN` handler calls this after deciding that
+     an in-flight `try/finally` catcher will execute next.
+     Rampart's fixup wires it to `rp_cancel_disarm()` so subsequent
+     bytecode interrupts inside the finally body don't re-fire
+     the cancel -- letting the finally run to completion.
+
+Real-world example -- rampart's `process.exit()` calls
+`duk_cancel(ctx, 0, rp_exit_silent_cb)` after queuing the exit
+value.  Deadline 0 fires on the next instruction; the callback
+returns 0 to request silent unwind; `LJ_TYPE_RETURN` unwinds with
+proper try/finally semantics; the executor returns; rampart's
+top-level then runs its registered exit hooks and exits the
+process.
 
 Introduction
 ------------
