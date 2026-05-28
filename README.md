@@ -142,7 +142,7 @@ to upstream 2.7.0.
   controls whether to silently skip names already register-bound
   (true) or throw (false).  No scope-chain mutation — reuses the
   existing env object.  Backs `rampart.localize(rampart.utils)`,
-  and is a localized counterpart to `rampart.globalize()` which lifts
+  which is a localized counterpart to `rampart.globalize()`. It lifts
   `rampart.utils` into the current scope for convenience (allows for, e.g.,
   bare `printf()`, `fflush(stdout)`, etc. C-like calling syntax).
 
