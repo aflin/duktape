@@ -374,35 +374,111 @@ static duk_ret_t set_entries(duk_context *ctx)
    Map constructor
    ============================================================ */
 
+/* Push arg[Symbol.iterator]() on the stack.  Caller is responsible
+ * for popping.  Throws TypeError if the arg has no Symbol.iterator. */
+static void iterable_push_iter(duk_context *ctx, duk_idx_t arg_idx)
+{
+    arg_idx = duk_normalize_index(ctx, arg_idx);
+
+    /* Fetch the Symbol.iterator well-known symbol. */
+    duk_get_global_string(ctx, "Symbol");
+    duk_get_prop_string(ctx, -1, "iterator");
+    duk_remove(ctx, -2);
+    /* stack top: Symbol.iterator (the key to look up on arg) */
+
+    /* duk_get_prop pops the key and uses obj at obj_idx.  Need stack
+     * shape [..., arg, key] before the call. */
+    duk_dup(ctx, arg_idx);
+    duk_swap_top(ctx, -2);
+    /* stack: [..., arg, Symbol.iterator] */
+    duk_get_prop(ctx, -2);
+    /* stack: [..., arg, arg[Symbol.iterator]] */
+
+    if (!duk_is_callable(ctx, -1)) {
+        RP_TYPE_THROW(ctx, "Map/Set: argument is not iterable");
+    }
+
+    /* duk_call_method wants [..., func, this, args...].  We have
+     * [..., arg, func], so swap to put func under arg. */
+    duk_swap_top(ctx, -2);
+    /* stack: [..., func, arg] */
+    duk_call_method(ctx, 0);
+    /* stack: [..., iter] */
+}
+
+/* Iterate `iter` (already on top of stack); for each value, call
+ * `cb(ctx, this_idx, value_idx)` where value_idx is the absolute
+ * stack index of the iterator's current `.value`.  The callback
+ * should not modify the stack beyond pushing/popping its own work;
+ * the value slot will be popped after the callback returns. */
+typedef void (*map_iter_cb)(duk_context *ctx, duk_idx_t this_idx, duk_idx_t value_idx);
+
+static void map_iterate(duk_context *ctx, duk_idx_t this_idx, duk_idx_t iter_idx, map_iter_cb cb)
+{
+    iter_idx = duk_normalize_index(ctx, iter_idx);
+    this_idx = duk_normalize_index(ctx, this_idx);
+    for (;;) {
+        duk_get_prop_string(ctx, iter_idx, "next");
+        duk_dup(ctx, iter_idx);
+        duk_call_method(ctx, 0);
+        /* stack top: result */
+        duk_get_prop_string(ctx, -1, "done");
+        if (duk_to_boolean(ctx, -1)) {
+            duk_pop_2(ctx);    /* done, result */
+            break;
+        }
+        duk_pop(ctx);          /* done */
+        duk_get_prop_string(ctx, -1, "value");
+        /* stack: ..., result, value */
+        cb(ctx, this_idx, duk_get_top_index(ctx));
+        duk_pop_2(ctx);        /* value, result */
+    }
+}
+
+static void map_ctor_cb(duk_context *ctx, duk_idx_t this_idx, duk_idx_t value_idx)
+{
+    /* value must be a 2-element [key, val] array (or array-like). */
+    if (!duk_is_object(ctx, value_idx)) {
+        RP_TYPE_THROW(ctx, "Map: iterator value must be an entry object");
+    }
+    duk_get_prop_index(ctx, value_idx, 0);   /* key */
+    duk_get_prop_index(ctx, value_idx, 1);   /* val */
+    /* call this.set(key, val) */
+    duk_get_prop_string(ctx, this_idx, "set");
+    duk_dup(ctx, this_idx);
+    duk_dup(ctx, -4);   /* key */
+    duk_dup(ctx, -4);   /* val */
+    duk_call_method(ctx, 2);
+    duk_pop_n(ctx, 3);  /* set retval, val, key */
+}
+
 static duk_ret_t map_constructor(duk_context *ctx)
 {
+    duk_idx_t this_idx;
+
     if (!duk_is_constructor_call(ctx))
         RP_THROW(ctx, "Map must be called with 'new'");
 
     duk_push_this(ctx);
     duk_push_object(ctx);
     duk_put_prop_string(ctx, -2, MAP_STORE);
-    duk_pop(ctx);
+    this_idx = duk_get_top_index(ctx);
+    /* stack: this  (at this_idx) */
 
-    /* Populate from iterable */
-    if (duk_is_array(ctx, 0)) {
-        duk_size_t len = duk_get_length(ctx, 0);
-        for (duk_uarridx_t i = 0; i < (duk_uarridx_t)len; i++) {
-            duk_get_prop_index(ctx, 0, i);
-            if (duk_is_array(ctx, -1) && duk_get_length(ctx, -1) >= 2) {
-                duk_get_prop_index(ctx, -1, 0);
-                duk_get_prop_index(ctx, -2, 1);
-                duk_push_this(ctx);
-                duk_get_prop_string(ctx, -1, "set");
-                duk_dup(ctx, -2);
-                duk_dup(ctx, -5);
-                duk_dup(ctx, -5);
-                duk_call_method(ctx, 2);
-                duk_pop_n(ctx, 4);
-            }
-            duk_pop(ctx);
-        }
+    /* Spec: no argument or null/undefined argument => empty Map. */
+    if (duk_get_top(ctx) < 1 || duk_is_null_or_undefined(ctx, 0)) {
+        duk_pop(ctx);
+        return 0;
     }
+
+    /* Symbol.iterator path -- handles arrays, Maps, Sets, generators,
+     * and any user iterable.  Per spec ARC the spec algorithm uses
+     * the iterator protocol uniformly even for arrays. */
+    iterable_push_iter(ctx, 0);
+    /* stack: this, iter */
+    map_iterate(ctx, this_idx, duk_get_top_index(ctx), map_ctor_cb);
+    duk_pop(ctx);  /* iter */
+    duk_pop(ctx);  /* this */
     return 0;
 }
 
@@ -460,28 +536,37 @@ static duk_ret_t set_forEach(duk_context *ctx)
     return 0;
 }
 
+static void set_ctor_cb(duk_context *ctx, duk_idx_t this_idx, duk_idx_t value_idx)
+{
+    /* call this.add(value) */
+    duk_get_prop_string(ctx, this_idx, "add");
+    duk_dup(ctx, this_idx);
+    duk_dup(ctx, value_idx);
+    duk_call_method(ctx, 1);
+    duk_pop(ctx);  /* add retval */
+}
+
 static duk_ret_t set_constructor(duk_context *ctx)
 {
+    duk_idx_t this_idx;
+
     if (!duk_is_constructor_call(ctx))
         RP_THROW(ctx, "Set must be called with 'new'");
 
     duk_push_this(ctx);
     duk_push_object(ctx);
     duk_put_prop_string(ctx, -2, MAP_STORE);
-    duk_pop(ctx);
+    this_idx = duk_get_top_index(ctx);
 
-    if (duk_is_array(ctx, 0)) {
-        duk_size_t len = duk_get_length(ctx, 0);
-        for (duk_uarridx_t i = 0; i < (duk_uarridx_t)len; i++) {
-            duk_get_prop_index(ctx, 0, i);
-            duk_push_this(ctx);
-            duk_get_prop_string(ctx, -1, "add");
-            duk_dup(ctx, -2);
-            duk_dup(ctx, -4);
-            duk_call_method(ctx, 1);
-            duk_pop_n(ctx, 3);
-        }
+    if (duk_get_top(ctx) < 1 || duk_is_null_or_undefined(ctx, 0)) {
+        duk_pop(ctx);
+        return 0;
     }
+
+    iterable_push_iter(ctx, 0);
+    map_iterate(ctx, this_idx, duk_get_top_index(ctx), set_ctor_cb);
+    duk_pop(ctx);  /* iter */
+    duk_pop(ctx);  /* this */
     return 0;
 }
 
