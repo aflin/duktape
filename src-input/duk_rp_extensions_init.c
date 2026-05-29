@@ -72,6 +72,9 @@ DUK_INTERNAL_DECL void duk_rp_install_bigint(duk_context *ctx);
 #if defined(DUK_RP_USE_TYPEDARRAY_EXTRAS)
 DUK_INTERNAL_DECL void duk_rp_install_typedarray_extras(duk_context *ctx);
 #endif
+#if defined(DUK_RP_USE_WEAK_REFS)
+DUK_INTERNAL_DECL void duk_rp_install_weak_refs(duk_context *ctx);
+#endif
 
 DUK_INTERNAL void duk_rp_install_extensions(duk_context *ctx) {
 	/* Order matters in a couple of places:
@@ -135,6 +138,9 @@ DUK_INTERNAL void duk_rp_install_extensions(duk_context *ctx) {
 #endif
 #if defined(DUK_RP_USE_TYPEDARRAY_EXTRAS)
 	duk_rp_install_typedarray_extras(ctx);
+#endif
+#if defined(DUK_RP_USE_WEAK_REFS)
+	duk_rp_install_weak_refs(ctx);
 #endif
 }
 

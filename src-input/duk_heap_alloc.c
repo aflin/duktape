@@ -421,6 +421,13 @@ DUK_INTERNAL void duk_heap_free(duk_heap *heap) {
 	DUK_D(DUK_DPRINT("freeing string table of heap: %p", (void *) heap));
 	duk__free_stringtable(heap);
 
+#if defined(DUK_RP_USE_WEAK_REFS)
+	if (heap->weak_back_table != NULL) {
+		duk_rp_weak_back_table_free(heap);
+		DUK_ASSERT(heap->weak_back_table == NULL);
+	}
+#endif
+
 	DUK_D(DUK_DPRINT("freeing heap structure: %p", (void *) heap));
 	heap->free_func(heap->heap_udata, heap);
 }
@@ -956,6 +963,9 @@ duk_heap *duk_heap_alloc(duk_alloc_function alloc_func,
 	res->dbg_request_cb = NULL;
 	res->dbg_udata = NULL;
 	res->dbg_pause_act = NULL;
+#endif
+#if defined(DUK_RP_USE_WEAK_REFS)
+	res->weak_back_table = NULL;  /* allocated lazily on first WeakRef */
 #endif
 #endif /* DUK_USE_EXPLICIT_NULL_INIT */
 

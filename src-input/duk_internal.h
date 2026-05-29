@@ -92,4 +92,30 @@ DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_equals(duk_hthread *thr, duk_tval
 DUK_INTERNAL_DECL duk_bool_t duk_rp_bigint_try_unary(duk_hthread *thr, duk_tval *tv_x, duk_uint_t opcode, duk_idx_t idx_z);
 #endif  /* DUK_RP_USE_BIGINT */
 
+#if defined(DUK_RP_USE_WEAK_REFS)
+/* Forward declarations for the weak-reference family (WeakRef,
+ * WeakMap, WeakSet, FinalizationRegistry) implemented in
+ * duk_rp_weak_refs.c.  These are called from the GC mark-and-sweep
+ * post-mark hook, the refcount-zero hook, and the heap free path. */
+DUK_INTERNAL_DECL void duk_rp_weak_back_target_dying(duk_heap *heap, duk_hobject *target);
+DUK_INTERNAL_DECL void duk_rp_weak_postmark_cleanup(duk_heap *heap);
+DUK_INTERNAL_DECL void duk_rp_weak_back_table_free(duk_heap *heap);
+/* duk_rp_weak_drain_pending_finalizers and duk_rp_weak_set_pending_notifier
+ * are declared in duktape.h (DUK_EXTERNAL_DECL) -- embedder-callable. */
+/* Mark-phase hook: invoked once per mark-and-sweep so the pending
+ * FinalizationRegistry callback queue's (cb, held) refs survive sweep.
+ * Caller supplies the mark functions (duk__mark_heaphdr / duk__mark_tval)
+ * because those are file-local to duk_heap_markandsweep.c. */
+DUK_INTERNAL_DECL void duk_rp_weak_mark_pending(
+    duk_heap *heap,
+    void (*mark_heaphdr_fn)(duk_heap *, duk_heaphdr *),
+    void (*mark_tval_fn)(duk_heap *, duk_tval *));
+/* Ephemeron pass for WeakMap: marks each VALUE whose KEY is already
+ * reachable.  Caller iterates until this returns 0 (fixpoint).  Same
+ * mark_tval_fn rationale as mark_pending above. */
+DUK_INTERNAL_DECL duk_bool_t duk_rp_weak_ephemeron_pass(
+    duk_heap *heap,
+    void (*mark_tval_fn)(duk_heap *, duk_tval *));
+#endif  /* DUK_RP_USE_WEAK_REFS */
+
 #endif /* DUK_INTERNAL_H_INCLUDED */

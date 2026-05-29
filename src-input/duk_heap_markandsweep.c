@@ -1337,7 +1337,35 @@ DUK_INTERNAL void duk_heap_mark_and_sweep(duk_heap *heap, duk_small_uint_t flags
 	duk__mark_finalizable(heap); /* Mark finalizable as reachability roots. */
 	duk__mark_finalize_list(heap); /* Mark finalizer work list as reachability roots. */
 #endif
+
+#if defined(DUK_RP_USE_WEAK_REFS)
+	/* Rampart: pending FinalizationRegistry callbacks hold INCREF'd
+	 * references that the mark phase otherwise can't reach.  Walk the
+	 * queue and mark each (cb, held) as additional roots so sweep
+	 * doesn't free them out from under cleanupSome. */
+	duk_rp_weak_mark_pending(heap, duk__mark_heaphdr, duk__mark_tval);
+#endif
+
 	duk__mark_temproots_by_heap_scan(heap); /* Temproots. */
+
+#if defined(DUK_RP_USE_WEAK_REFS)
+	/* Rampart: ephemeron mark pass for WeakMap.  A value is reachable
+	 * iff its key is reachable through some path other than the
+	 * WeakMap.  We loop until no new marks happen -- usually 1-3
+	 * iterations because each pass may newly-mark values that are
+	 * themselves keys of other WeakMaps. */
+	while (duk_rp_weak_ephemeron_pass(heap, duk__mark_tval)) {
+		duk__mark_temproots_by_heap_scan(heap);
+	}
+
+	/* Rampart: with marking complete, walk all reachable WEAK_KIND
+	 * objects and clear any of their internal weak pointers whose
+	 * pointees turned out to be unreachable.  This MUST happen before
+	 * sweep so the cleared pointers don't dangle past free.  Per-
+	 * subtype cleanup (WeakMap entry pruning, FinalizationRegistry
+	 * callback queueing, etc.) happens here too. */
+	duk_rp_weak_postmark_cleanup(heap);
+#endif
 
 	/*
 	 *  Sweep garbage and remove marking flags, and move objects with

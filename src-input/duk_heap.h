@@ -661,6 +661,16 @@ struct duk_heap {
 	duk_int_t stats_envrec_oldenv;
 	duk_int_t stats_envrec_pushclosure;
 #endif
+
+#if defined(DUK_RP_USE_WEAK_REFS)
+	/* Rampart: lazy back-table mapping target hobject* -> linked list of
+	 * WeakRef hobjects pointing at that target.  Used by the refcount-zero
+	 * path to null out any WeakRefs whose target is about to be freed,
+	 * BEFORE the target's storage is invalidated.  NULL until the first
+	 * WeakRef is constructed; allocated lazily by duk_rp_weak_back_add.
+	 * Field type kept opaque (void *) so the heap struct stays portable. */
+	void *weak_back_table;
+#endif
 };
 
 /*

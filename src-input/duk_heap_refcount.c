@@ -349,6 +349,17 @@ DUK_LOCAL DUK_INLINE void duk__refcount_refzero_hobject(duk_heap *heap, duk_hobj
 
 	DUK_HEAP_REMOVE_FROM_HEAP_ALLOCATED(heap, hdr);
 
+#if defined(DUK_RP_USE_WEAK_REFS)
+	/* Rampart: any WeakRef whose target is this dying object must be
+	 * cleared NOW, before duk_free_hobject() releases the storage.
+	 * Skip the lookup entirely when no WeakRef has ever been created
+	 * (back_table is NULL); the cost in that common case is one
+	 * pointer compare. */
+	if (DUK_UNLIKELY(heap->weak_back_table != NULL)) {
+		duk_rp_weak_back_target_dying(heap, obj);
+	}
+#endif
+
 #if defined(DUK_USE_FINALIZER_SUPPORT)
 	/* This finalizer check MUST BE side effect free.  It should also be
 	 * as fast as possible because it's applied to every object freed.

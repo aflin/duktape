@@ -121,8 +121,19 @@
  * without the Symbol.toStringTag dance.  Class number is encoded in
  * 5 bits (slots 0..31), so this consumes one of two remaining slots. */
 #define DUK_HOBJECT_CLASS_BIGINT            30
-#define DUK_HOBJECT_CLASS_MAX               30
 #define DUK_HOBJECT_CMASK_BIGINT            (1UL << DUK_HOBJECT_CLASS_BIGINT)
+#endif
+#if defined(DUK_RP_USE_WEAK_REFS)
+/* Rampart contribution: single class slot shared by the weak-reference
+ * family (WeakRef, WeakMap, WeakSet, FinalizationRegistry).  The
+ * specific kind is stored in a hidden subtype byte on each instance.
+ * The class slot lets the GC do a fast brand check on every object
+ * during sweep to find the weak-family instances that need cleanup. */
+#define DUK_HOBJECT_CLASS_WEAK_KIND         31
+#define DUK_HOBJECT_CMASK_WEAK_KIND         (1UL << DUK_HOBJECT_CLASS_WEAK_KIND)
+#define DUK_HOBJECT_CLASS_MAX               31
+#elif defined(DUK_RP_USE_BIGINT)
+#define DUK_HOBJECT_CLASS_MAX               30
 #else
 #define DUK_HOBJECT_CLASS_MAX               29
 #endif

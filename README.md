@@ -104,6 +104,44 @@ Each item is gated by a `DUK_RP_USE_*` flag in `util/rp_config.h`.
   are missing today.
 * **`DUK_RP_USE_BIGINT` literal syntax** — `123n`, `0xffn`, `0o17n`,
   `0b1010n`; rejects `1.5n`, `1e10n`, legacy octal like `07n`.
+* **`DUK_RP_USE_WEAK_REFS`** — ES2021 `WeakRef`, `WeakMap`, `WeakSet`,
+  `FinalizationRegistry`.  Spec-conforming including ephemeron
+  WeakMap semantics (a value is reachable iff its key is reachable
+  through some other path; v1 strong-values would have leaked
+  value->key cycles, fixed in v2) and host-task-style FinReg
+  callback timing (callbacks fire on the next event-loop iteration,
+  matching V8/Node `FinalizationCleanupTask` placement; auto-drain
+  is wired through libevent's `event_active()` so the drain stays
+  dormant when nothing is pending).  All four types share the
+  single class slot 31 (`DUK_HOBJECT_CLASS_WEAK_KIND`); per-instance
+  kind is in a hidden number prop.  Weak pointers live as raw
+  `hobject*` in dynamic buffers (mark-blind by construction), with
+  a heap-level back-table from target -> list of (holder, role)
+  that resizes on demand.  Both the refcount-zero and mark-and-sweep
+  death paths converge on a single finalizer per instance for
+  cleanup.  Two embedder hooks in `duktape.h`:
+  `duk_rp_weak_drain_pending_finalizers(ctx)` and
+  `duk_rp_weak_set_pending_notifier(ctx, cb, udata)` -- see
+  "New API calls" below.
+
+  Known minor divergences from ES2021 spec text:
+
+  * `WeakRef` does not implement `KeepDuringJob` (the rule that
+    between `new WeakRef(t)` and any subsequent `wr.deref()` in
+    the same execution turn, the target stays observably alive).
+    Works in practice because duktape doesn't GC between bytecode
+    ops by default, but it's not guaranteed.
+  * `FinalizationRegistry` unregister tokens are held strongly,
+    not weakly.  Per spec, if you drop all other references to a
+    token its registration becomes un-unregisterable but the
+    token itself is eligible for collection; our implementation
+    keeps the token alive.
+  * No `Symbol` targets -- all four types reject non-object
+    targets with `TypeError`.  ES2023+ allows registered symbols
+    as targets.
+  * `FinalizationRegistry.prototype.cleanupSome` is exposed.  It
+    was a stage-3 proposal removed from the final ES2021 text;
+    V8 and SpiderMonkey still ship it for compat, and so do we.
 
 ### C-API additions (compile-time)
 
@@ -218,6 +256,30 @@ public signatures).
   user-overridable `BigInt.prototype.toString` and uses the
   engine-internal stringifier (`mp_to_radix`) per spec `ToString` of
   a BigInt value.  Emits lowercase digits for radix 11..36.
+
+**Weak-reference family embedder hooks** (gated by
+`DUK_RP_USE_WEAK_REFS`).  Two functions let the embedder integrate
+the FinalizationRegistry callback queue with its event loop without
+per-iteration polling.
+
+* **`duk_rp_weak_drain_pending_finalizers(ctx)`** — fire every queued
+  FinReg callback with its held value, then empty the queue.
+  Idempotent; safe to call when the queue is empty.  Errors thrown
+  inside callbacks are swallowed so a bad callback can't abort the
+  drain.  Typical use: the embedder's libevent drain callback calls
+  this function.
+
+* **`duk_rp_weak_set_pending_notifier(ctx, cb, udata)`** — register
+  a one-call notifier that fires on the empty -> non-empty
+  transition of the pending queue.  `cb(udata)` is invoked exactly
+  once per drain cycle.  Typical use: register a callback that does
+  `event_active(drain_ev, 0, 0)` so the drain runs at the end of
+  the current event-loop batch; libevent never wakes for the drain
+  on its own, so when no FinReg deaths happen the machinery is
+  completely dormant.  Pass `cb=NULL` to unregister.  Rampart's
+  `cmdline.c` wires this in around 30 lines so FinReg callbacks
+  fire automatically on the next event-loop iteration (analogous to
+  V8's `FinalizationCleanupTask`).
 
 In addition, `DUK_RP_USE_CANCEL` activates a longjmp-based silent
 unwind cooperating with the existing `DUK_USE_EXEC_TIMEOUT_CHECK`

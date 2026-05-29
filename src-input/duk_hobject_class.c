@@ -129,5 +129,11 @@ DUK_INTERNAL duk_uint8_t duk_class_number_to_stridx[32] = {
 #else
 	DUK_STRIDX_EMPTY_STRING, /* UNUSED, intentionally empty */
 #endif
-	DUK_STRIDX_EMPTY_STRING, /* UNUSED, intentionally empty */
+	/* slot 31: rampart weak-reference family (WeakRef/WeakMap/WeakSet/
+	 * FinalizationRegistry) when DUK_RP_USE_WEAK_REFS is on.  The
+	 * specific class tag varies per subtype, so we rely on the
+	 * @@toStringTag accessor installed on each prototype and leave the
+	 * table entry empty.  Object.prototype.toString consults the
+	 * accessor and falls back to "[object Object]" only if absent. */
+	DUK_STRIDX_EMPTY_STRING,
 };
