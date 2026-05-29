@@ -63,7 +63,9 @@ DUK_INTERNAL_DECL void duk_rp_install_textencoding(duk_context *ctx);
 #if defined(DUK_RP_USE_MAP_SET)
 DUK_INTERNAL_DECL void duk_rp_install_map_set(duk_context *ctx);
 #endif
-#if defined(DUK_RP_USE_PROMISE)
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+DUK_INTERNAL_DECL void duk_rp_install_promise_native(duk_context *ctx);
+#elif defined(DUK_RP_USE_PROMISE)
 DUK_INTERNAL_DECL void duk_rp_install_promise(duk_context *ctx);
 #endif
 #if defined(DUK_RP_USE_BIGINT)
@@ -128,7 +130,9 @@ DUK_INTERNAL void duk_rp_install_extensions(duk_context *ctx) {
 #if defined(DUK_RP_USE_MAP_SET)
 	duk_rp_install_map_set(ctx);
 #endif
-#if defined(DUK_RP_USE_PROMISE)
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+	duk_rp_install_promise_native(ctx);
+#elif defined(DUK_RP_USE_PROMISE)
 	duk_rp_install_promise(ctx);
 #endif
 	/* BigInt installs last so its prototype can pick up Symbol.toStringTag

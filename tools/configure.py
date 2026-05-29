@@ -579,7 +579,8 @@ def main():
         'duk_rp_object_extras.c',    # DUK_RP_USE_OBJECT_EXTRAS
         'duk_rp_bigint.c',           # DUK_RP_USE_BIGINT (JS-visible BigInt)
         'duk_rp_typedarray_extras.c',# DUK_RP_USE_TYPEDARRAY_EXTRAS
-        'duk_rp_weak_refs.c'         # DUK_RP_USE_WEAK_REFS
+        'duk_rp_weak_refs.c',        # DUK_RP_USE_WEAK_REFS
+        'duk_rp_promise_native.c'    # DUK_RP_USE_PROMISE_NATIVE
     ], srcdir, os.path.join(tempdir, 'src'))
 
     # Stage the vendored libtommath subset.  Lives in src-input/tommath/

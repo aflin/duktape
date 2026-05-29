@@ -1380,6 +1380,25 @@ DUK_EXTERNAL_DECL double     duk_rp_bigint_to_double(duk_context *ctx, duk_idx_t
 DUK_EXTERNAL_DECL void       duk_rp_push_bigint_to_string(duk_context *ctx, duk_idx_t idx, int radix);
 #endif
 
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+/* Native Promise: microtask queue drainer and notifier.  Same pattern
+ * as the weak-ref family below; the rampart embedder typically wires
+ * the same libevent event_active hook to drain both queues.
+ *
+ * duk_rp_microtask_drain(ctx) -- run all queued microtasks (Promise
+ *   reactions and thenable adoption jobs) until the queue is empty.
+ *   Idempotent; safe to call when empty.
+ *
+ * duk_rp_microtask_set_notifier(ctx, cb, udata) -- register a one-call
+ *   notifier that fires on the empty -> non-empty transition of the
+ *   queue.  Typical use: cb does event_active(drain_ev, 0, 0). */
+DUK_EXTERNAL_DECL void duk_rp_microtask_drain(duk_context *ctx);
+DUK_EXTERNAL_DECL void duk_rp_microtask_set_notifier(
+    duk_context *ctx,
+    void (*cb)(void *udata),
+    void *udata);
+#endif
+
 #if defined(DUK_RP_USE_WEAK_REFS)
 /* WeakRef / WeakMap / WeakSet / FinalizationRegistry — embedder hooks.
  *

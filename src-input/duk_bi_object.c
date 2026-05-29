@@ -64,9 +64,23 @@ DUK_INTERNAL duk_ret_t duk_bi_object_constructor_assign(duk_hthread *thr) {
 
 		/* duk_enum() respects ES2015+ [[OwnPropertyKeys]] ordering, which is
 		 * convenient here.
+		 *
+		 * Rampart (DUK_RP_USE_OBJECT_EXTRAS): per ES2015 19.1.2.1 step 4.b,
+		 * Object.assign must iterate own keys returned by [[OwnPropertyKeys]],
+		 * which includes Symbol-keyed properties.  Upstream duktape 2.7.0
+		 * passes DUK_ENUM_OWN_PROPERTIES_ONLY without DUK_ENUM_INCLUDE_SYMBOLS
+		 * so Symbol-keyed enumerable own properties are silently dropped --
+		 * a spec compliance bug.  Adding INCLUDE_SYMBOLS is the one-flag fix.
+		 * Enumerable filtering still applies (the enumerator default skips
+		 * non-enumerable; INCLUDE_NONENUMERABLE is the opt-in inverse), so
+		 * spec step 4.b's "if desc.[[Enumerable]] is true" is honored.
 		 */
 		duk_to_object(thr, idx);
+#if defined(DUK_RP_USE_OBJECT_EXTRAS)
+		duk_enum(thr, idx, DUK_ENUM_OWN_PROPERTIES_ONLY | DUK_ENUM_INCLUDE_SYMBOLS);
+#else
 		duk_enum(thr, idx, DUK_ENUM_OWN_PROPERTIES_ONLY);
+#endif
 		while (duk_next(thr, -1, 1 /*get_value*/)) {
 			/* [ target ... enum key value ] */
 			duk_put_prop(thr, 0);

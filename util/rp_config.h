@@ -39,6 +39,7 @@
 #define DUK_RP_USE_BIGINT                  /* ES2020 BigInt (libtommath-backed) */
 #define DUK_RP_USE_TYPEDARRAY_EXTRAS       /* %TypedArray%.prototype[@@toStringTag] + future TA spec polish */
 #define DUK_RP_USE_WEAK_REFS               /* WeakRef, WeakMap, WeakSet, FinalizationRegistry (ES2021) */
+#define DUK_RP_USE_PROMISE_NATIVE          /* Native C Promise (replaces DUK_RP_USE_PROMISE polyfill) */
 /* === Internal / C-API features (compile-time gates only) === */
 #define DUK_RP_USE_SCOPE_VARS              /* duk_rp_get_scope_vars C API */
 #define DUK_RP_USE_CANCEL                  /* duk_cancel + LJ_TYPE_RETURN silent unwind */
@@ -54,7 +55,8 @@
     defined(DUK_RP_USE_OBJECT_VALUES_ENTRIES) || defined(DUK_RP_USE_ARRAY_EXTRAS) || \
     defined(DUK_RP_USE_STRING_EXTRAS) || defined(DUK_RP_USE_OBJECT_EXTRAS) || \
     defined(DUK_RP_USE_MODERN_POLYFILLS) || defined(DUK_RP_USE_BIGINT) || \
-    defined(DUK_RP_USE_TYPEDARRAY_EXTRAS) || defined(DUK_RP_USE_WEAK_REFS)
+    defined(DUK_RP_USE_TYPEDARRAY_EXTRAS) || defined(DUK_RP_USE_WEAK_REFS) || \
+    defined(DUK_RP_USE_PROMISE_NATIVE)
 #define DUK_RP_ANY_RUNTIME
 #endif
 

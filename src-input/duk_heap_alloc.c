@@ -428,6 +428,13 @@ DUK_INTERNAL void duk_heap_free(duk_heap *heap) {
 	}
 #endif
 
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+	if (heap->microtask_queue != NULL) {
+		duk_rp_microtask_queue_free(heap);
+		DUK_ASSERT(heap->microtask_queue == NULL);
+	}
+#endif
+
 	DUK_D(DUK_DPRINT("freeing heap structure: %p", (void *) heap));
 	heap->free_func(heap->heap_udata, heap);
 }
@@ -966,6 +973,9 @@ duk_heap *duk_heap_alloc(duk_alloc_function alloc_func,
 #endif
 #if defined(DUK_RP_USE_WEAK_REFS)
 	res->weak_back_table = NULL;  /* allocated lazily on first WeakRef */
+#endif
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+	res->microtask_queue = NULL;  /* allocated lazily on first enqueue */
 #endif
 #endif /* DUK_USE_EXPLICIT_NULL_INIT */
 

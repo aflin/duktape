@@ -16,7 +16,15 @@ DUK_INTERNAL duk_ret_t duk_bi_reflect_object_delete_property(duk_hthread *thr) {
 
 	DUK_ASSERT_TOP(thr, 2);
 	(void) duk_require_hobject(thr, 0);
+	/* Rampart (DUK_RP_USE_OBJECT_EXTRAS): per spec, Reflect.deleteProperty
+	 * does ToPropertyKey(key), not ToString(key).  ToPropertyKey accepts
+	 * Symbols.  Upstream duktape 2.7.0 uses duk_to_string which throws on
+	 * Symbol keys -- a spec compliance bug. */
+#if defined(DUK_RP_USE_OBJECT_EXTRAS)
+	(void) duk_to_property_key_hstring(thr, 1);
+#else
 	(void) duk_to_string(thr, 1);
+#endif
 
 	/* [ target key ] */
 
@@ -36,7 +44,13 @@ DUK_INTERNAL duk_ret_t duk_bi_reflect_object_get(duk_hthread *thr) {
 	DUK_ASSERT(thr != NULL);
 	nargs = duk_get_top_require_min(thr, 2 /*min_top*/);
 	(void) duk_require_hobject(thr, 0);
+	/* Rampart (DUK_RP_USE_OBJECT_EXTRAS): ToPropertyKey, not ToString;
+	 * see Reflect.deleteProperty above for rationale. */
+#if defined(DUK_RP_USE_OBJECT_EXTRAS)
+	(void) duk_to_property_key_hstring(thr, 1);
+#else
 	(void) duk_to_string(thr, 1);
+#endif
 	if (nargs >= 3 && !duk_strict_equals(thr, 0, 2)) {
 		/* XXX: [[Get]] receiver currently unsupported */
 		DUK_ERROR_UNSUPPORTED(thr);
@@ -59,7 +73,12 @@ DUK_INTERNAL duk_ret_t duk_bi_reflect_object_has(duk_hthread *thr) {
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT_TOP(thr, 2);
 	(void) duk_require_hobject(thr, 0);
+	/* Rampart (DUK_RP_USE_OBJECT_EXTRAS): ToPropertyKey, not ToString. */
+#if defined(DUK_RP_USE_OBJECT_EXTRAS)
+	(void) duk_to_property_key_hstring(thr, 1);
+#else
 	(void) duk_to_string(thr, 1);
+#endif
 
 	/* [ target key ] */
 
@@ -80,7 +99,12 @@ DUK_INTERNAL duk_ret_t duk_bi_reflect_object_set(duk_hthread *thr) {
 	DUK_ASSERT(thr != NULL);
 	nargs = duk_get_top_require_min(thr, 3 /*min_top*/);
 	(void) duk_require_hobject(thr, 0);
+	/* Rampart (DUK_RP_USE_OBJECT_EXTRAS): ToPropertyKey, not ToString. */
+#if defined(DUK_RP_USE_OBJECT_EXTRAS)
+	(void) duk_to_property_key_hstring(thr, 1);
+#else
 	(void) duk_to_string(thr, 1);
+#endif
 	if (nargs >= 4 && !duk_strict_equals(thr, 0, 3)) {
 		/* XXX: [[Set]] receiver currently unsupported */
 		DUK_ERROR_UNSUPPORTED(thr);

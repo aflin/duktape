@@ -110,6 +110,16 @@ DUK_INTERNAL_DECL void duk_rp_weak_mark_pending(
     duk_heap *heap,
     void (*mark_heaphdr_fn)(duk_heap *, duk_heaphdr *),
     void (*mark_tval_fn)(duk_heap *, duk_tval *));
+
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+/* Mark-phase hook: invoked once per mark-and-sweep so the pending
+ * Promise microtask queue's entries survive sweep. */
+DUK_INTERNAL_DECL void duk_rp_microtask_mark(
+    duk_heap *heap,
+    void (*mark_heaphdr_fn)(duk_heap *, duk_heaphdr *),
+    void (*mark_tval_fn)(duk_heap *, duk_tval *));
+DUK_INTERNAL_DECL void duk_rp_microtask_queue_free(duk_heap *heap);
+#endif
 /* Ephemeron pass for WeakMap: marks each VALUE whose KEY is already
  * reachable.  Caller iterates until this returns 0 (fixpoint).  Same
  * mark_tval_fn rationale as mark_pending above. */

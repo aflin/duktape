@@ -671,6 +671,15 @@ struct duk_heap {
 	 * Field type kept opaque (void *) so the heap struct stays portable. */
 	void *weak_back_table;
 #endif
+
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+	/* Rampart: native Promise microtask queue.  Linked list of pending
+	 * reactions / thenable adoption jobs.  Drained via
+	 * duk_rp_microtask_drain(ctx).  Mark hook in markandsweep keeps
+	 * referenced cb/value alive.  Opaque pointer; struct defined in
+	 * duk_rp_promise_native.c. */
+	void *microtask_queue;
+#endif
 };
 
 /*

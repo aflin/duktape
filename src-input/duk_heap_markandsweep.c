@@ -1346,6 +1346,13 @@ DUK_INTERNAL void duk_heap_mark_and_sweep(duk_heap *heap, duk_small_uint_t flags
 	duk_rp_weak_mark_pending(heap, duk__mark_heaphdr, duk__mark_tval);
 #endif
 
+#if defined(DUK_RP_USE_PROMISE_NATIVE)
+	/* Rampart: native Promise microtask queue holds INCREF'd refs that
+	 * the mark phase otherwise can't reach.  Same root-marking pattern
+	 * as the FinReg pending queue above. */
+	duk_rp_microtask_mark(heap, duk__mark_heaphdr, duk__mark_tval);
+#endif
+
 	duk__mark_temproots_by_heap_scan(heap); /* Temproots. */
 
 #if defined(DUK_RP_USE_WEAK_REFS)
