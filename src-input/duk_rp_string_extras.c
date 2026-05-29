@@ -4,6 +4,8 @@
  *  String.prototype additions:
  *    .trimStart()    ES2019
  *    .trimEnd()      ES2019
+ *    .trimLeft()     pre-spec alias of .trimStart (web compat)
+ *    .trimRight()    pre-spec alias of .trimEnd   (web compat)
  *    .replaceAll(s,r) ES2021
  *
  *  Gated by DUK_RP_USE_STRING_EXTRAS.  Origin: rampart's
@@ -14,6 +16,12 @@
  *  string builder (push chunks, duk_concat) instead of rampart's
  *  external rp_string helper — keeps the file self-contained and
  *  pulls in no rampart-specific dependencies.
+ *
+ *  Note: String.prototype.normalize is NOT installed here -- it
+ *  requires Unicode normalization tables (ICU), which would couple
+ *  duktape to a 10+ MB dependency.  Rampart installs a lazy-load
+ *  stub (rampart-side) that triggers `require('rampart-intl')` on
+ *  first call; the real implementation lives in rampart-intl.so.
  */
 
 #include "duk_internal.h"
@@ -114,9 +122,21 @@ DUK_INTERNAL void duk_rp_install_string_extras(duk_context *ctx) {
 	duk_put_prop_string(ctx, -2, "trimStart");
 	duk_rp_set_enum_false(ctx, -1, "trimStart");
 
+	/* trimLeft is the pre-spec name for trimStart kept around for web
+	 * compat.  Same function, different prop name.  Per the ES Annex B
+	 * (Additional ECMAScript Features for Web Browsers), the two MUST
+	 * be the SAME function value -- not just equivalent. */
+	duk_get_prop_string(ctx, -1, "trimStart");
+	duk_put_prop_string(ctx, -2, "trimLeft");
+	duk_rp_set_enum_false(ctx, -1, "trimLeft");
+
 	duk_push_c_function(ctx, duk__rp_string_trim_end, 0);
 	duk_put_prop_string(ctx, -2, "trimEnd");
 	duk_rp_set_enum_false(ctx, -1, "trimEnd");
+
+	duk_get_prop_string(ctx, -1, "trimEnd");
+	duk_put_prop_string(ctx, -2, "trimRight");
+	duk_rp_set_enum_false(ctx, -1, "trimRight");
 
 	duk_push_c_function(ctx, duk__rp_string_replace_all, 2);
 	duk_put_prop_string(ctx, -2, "replaceAll");

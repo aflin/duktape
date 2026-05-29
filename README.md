@@ -80,7 +80,9 @@ Each item is gated by a `DUK_RP_USE_*` flag in `util/rp_config.h`.
 * **`DUK_RP_USE_ARRAY_EXTRAS`** — `Array.{from,of}` and
   `Array.prototype.{includes,flat,flatMap,at,findLast,findLastIndex}`.
 * **`DUK_RP_USE_STRING_EXTRAS`** — `String.prototype.{trimStart,
-  trimEnd,replaceAll}`.
+  trimEnd,replaceAll}`.  Also installs `trimLeft` / `trimRight` as
+  the SAME function values as `trimStart` / `trimEnd` (Annex B web
+  compat, ES2019).
 * **`DUK_RP_USE_OBJECT_EXTRAS`** — `Object.{hasOwn,fromEntries}`
   (ES2022).
 * **`DUK_RP_USE_MODERN_POLYFILLS`** — `Object.groupBy`,
