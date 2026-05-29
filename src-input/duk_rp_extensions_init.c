@@ -69,6 +69,9 @@ DUK_INTERNAL_DECL void duk_rp_install_promise(duk_context *ctx);
 #if defined(DUK_RP_USE_BIGINT)
 DUK_INTERNAL_DECL void duk_rp_install_bigint(duk_context *ctx);
 #endif
+#if defined(DUK_RP_USE_TYPEDARRAY_EXTRAS)
+DUK_INTERNAL_DECL void duk_rp_install_typedarray_extras(duk_context *ctx);
+#endif
 
 DUK_INTERNAL void duk_rp_install_extensions(duk_context *ctx) {
 	/* Order matters in a couple of places:
@@ -129,6 +132,9 @@ DUK_INTERNAL void duk_rp_install_extensions(duk_context *ctx) {
 	 * if the Symbol global was set up elsewhere. */
 #if defined(DUK_RP_USE_BIGINT)
 	duk_rp_install_bigint(ctx);
+#endif
+#if defined(DUK_RP_USE_TYPEDARRAY_EXTRAS)
+	duk_rp_install_typedarray_extras(ctx);
 #endif
 }
 

@@ -85,6 +85,23 @@ Each item is gated by a `DUK_RP_USE_*` flag in `util/rp_config.h`.
   (ES2022).
 * **`DUK_RP_USE_MODERN_POLYFILLS`** — `Object.groupBy`,
   `String.prototype.matchAll`.
+* **`DUK_RP_USE_TYPEDARRAY_EXTRAS`** — spec-conformance polish for
+  the TypedArray prototypes.  Currently installs
+  `%TypedArray%.prototype[@@toStringTag]` as a proper accessor
+  descriptor (ES2015 22.2.3.31).  Upstream duktape already prints
+  `[object Int8Array]` via `Object.prototype.toString` through its
+  class-number table, but there is no `Symbol.toStringTag` property
+  at all -- `Object.getOwnPropertyDescriptor(...).get` returns
+  `undefined`.  This flag adds the spec's accessor on
+  `%TypedArray%.prototype` whose getter returns the receiver's
+  subtype name (`"Int8Array"` ... `"Float64Array"`) or `undefined`
+  for any non-TypedArray receiver -- no `TypeError` on
+  `null`/`undefined`/primitive receivers per spec.  Descriptor is
+  `{enumerable: false, configurable: true}` with no setter.  Future
+  additions under the same flag may include matching accessors on
+  `ArrayBuffer.prototype` and `DataView.prototype`, plus the
+  brand-checking the `buffer`/`byteLength`/`byteOffset` accessors
+  are missing today.
 * **`DUK_RP_USE_BIGINT` literal syntax** — `123n`, `0xffn`, `0o17n`,
   `0b1010n`; rejects `1.5n`, `1e10n`, legacy octal like `07n`.
 
