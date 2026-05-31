@@ -1288,11 +1288,60 @@ DUK_INTERNAL duk_ret_t duk_bi_buffer_compare_shared(duk_hthread *thr) {
 	 */
 
 	if (DUK_HBUFOBJ_VALID_SLICE(h_bufarg1) && DUK_HBUFOBJ_VALID_SLICE(h_bufarg2)) {
+		/* h_bufarg1 is the "source" (this for the prototype form, buf1 for
+		 * the static form); h_bufarg2 is the "target".  Default to comparing
+		 * the whole slices.
+		 */
+		duk_int_t source_length = (duk_int_t) h_bufarg1->length;
+		duk_int_t target_length = (duk_int_t) h_bufarg2->length;
+		duk_int_t target_start = 0, target_end = target_length;
+		duk_int_t source_start = 0, source_end = source_length;
+		duk_size_t source_off, target_off, source_len, target_len;
+
+		if (!(magic & 0x02U)) {
+			/* Node.js Buffer.prototype.compare(target, targetStart,
+			 * targetEnd, sourceStart, sourceEnd) compares the sub-ranges
+			 * this[sourceStart..sourceEnd) and target[targetStart..targetEnd).
+			 * The offset args apply only to the prototype form; the static
+			 * Buffer.compare(buf1, buf2) takes no offsets.
+			 *
+			 * This is a varargs native, so the value stack holds only the
+			 * args actually passed.  Pad to 5 with undefined so the optional
+			 * offset slots are always valid stack indices.
+			 */
+			duk_set_top(thr, 5);
+			if (!duk_is_undefined(thr, 1)) target_start = duk_to_int(thr, 1);
+			if (!duk_is_undefined(thr, 2)) target_end = duk_to_int(thr, 2);
+			if (!duk_is_undefined(thr, 3)) source_start = duk_to_int(thr, 3);
+			if (!duk_is_undefined(thr, 4)) source_end = duk_to_int(thr, 4);
+
+			/* Node throws RangeError for negative starts and for ends
+			 * outside [0, length].  Starts beyond length are allowed and
+			 * simply yield an empty range (handled by the clamp below).
+			 */
+			if (target_start < 0 || source_start < 0 ||
+			    target_end < 0 || target_end > target_length ||
+			    source_end < 0 || source_end > source_length) {
+				DUK_DCERROR_RANGE_INVALID_ARGS(thr);
+			}
+		}
+
+		/* Crossed/empty ranges become zero length (matches Node's
+		 * sourceStart>=sourceEnd / targetStart>=targetEnd early returns,
+		 * which duk_js_data_compare reproduces via its length comparison).
+		 * When a range is empty its start may be beyond the buffer, so use
+		 * offset 0 to avoid forming an out-of-bounds pointer (never read).
+		 */
+		source_len = (source_end > source_start) ? (duk_size_t) (source_end - source_start) : 0;
+		target_len = (target_end > target_start) ? (duk_size_t) (target_end - target_start) : 0;
+		source_off = (source_len > 0) ? (duk_size_t) source_start : 0;
+		target_off = (target_len > 0) ? (duk_size_t) target_start : 0;
+
 		comp_res = duk_js_data_compare(
-		    (const duk_uint8_t *) DUK_HBUFFER_GET_DATA_PTR(thr->heap, h_bufarg1->buf) + h_bufarg1->offset,
-		    (const duk_uint8_t *) DUK_HBUFFER_GET_DATA_PTR(thr->heap, h_bufarg2->buf) + h_bufarg2->offset,
-		    (duk_size_t) h_bufarg1->length,
-		    (duk_size_t) h_bufarg2->length);
+		    (const duk_uint8_t *) DUK_HBUFFER_GET_DATA_PTR(thr->heap, h_bufarg1->buf) + h_bufarg1->offset + source_off,
+		    (const duk_uint8_t *) DUK_HBUFFER_GET_DATA_PTR(thr->heap, h_bufarg2->buf) + h_bufarg2->offset + target_off,
+		    source_len,
+		    target_len);
 	} else {
 		comp_res = -1; /* either nonzero value is ok */
 	}

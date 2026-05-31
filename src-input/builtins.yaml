@@ -5322,8 +5322,8 @@ objects:
         value:
           type: function
           native: duk_bi_buffer_compare_shared
-          length: 1
-          varargs: false
+          length: 5  # Node buf.compare(target, targetStart, targetEnd, sourceStart, sourceEnd)
+          varargs: true
           magic: 1  # magic = 1: compare
         nodejs_buffer: true
       - key: "copy"
