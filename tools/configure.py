@@ -358,6 +358,14 @@ def main():
     if git_describe is None:
         logger.debug('Git describe not specified, autodetect from current directory')
         git_describe = exec_get_stdout([ 'git', 'describe', '--always', '--dirty' ], default='external').strip()
+        # Rampart fork: collapse git's verbose "-g<hash>[-dirty]" suffix
+        # into a stable "-rp" marker so the startup banner reads e.g.
+        # "v2.7.0-9-rp" instead of "v2.7.0-9-g2c002638-dirty".  An explicit
+        # --git-describe (handled above) is still honored verbatim.
+        git_describe = re.sub(r'-g[0-9a-f]+(-dirty)?$', '', git_describe)
+        git_describe = re.sub(r'-dirty$', '', git_describe)
+        if git_describe != 'external' and not git_describe.endswith('-rp'):
+            git_describe += '-rp'
     if git_branch is None:
         logger.debug('Git branch not specified, autodetect from current directory')
         git_branch = exec_get_stdout([ 'git', 'rev-parse', '--abbrev-ref', 'HEAD' ], default='external').strip()
