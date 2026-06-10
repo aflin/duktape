@@ -91,23 +91,28 @@ static duk_ret_t duk__rp_string_replace_all(duk_context *ctx) {
 	duk_idx_t pieces = 0;
 	const char *cur = haystack;
 	const char *end = haystack + hlen;
+	const char *run_start = cur; /* start of the current non-matching run */
+	/* Fix (#3): coalesce non-matching bytes into ONE chunk per run instead of
+	 * pushing one value-stack slot per byte, which made replaceAll on a large
+	 * string grow the value stack to O(haystack length) and hit the valstack
+	 * limit (RangeError/OOM) on ordinary multi-MB text. */
 	while (cur <= end - (ptrdiff_t) nlen) {
 		if (memcmp(cur, needle, nlen) == 0) {
+			if (cur > run_start) {
+				duk_push_lstring(ctx, run_start, (duk_size_t)(cur - run_start));
+				pieces += 1;
+			}
 			duk_push_lstring(ctx, replacement, rlen);
 			pieces += 1;
 			cur += nlen;
+			run_start = cur;
 		} else {
-			/* Push one byte at a time so a trailing tail handles
-			 * naturally below.  Slight inefficiency vs.
-			 * coalescing runs but keeps the code simple. */
-			duk_push_lstring(ctx, cur, 1);
-			pieces += 1;
 			cur += 1;
 		}
 	}
-	/* Append any unscanned tail (last <nlen bytes can't match). */
-	if (cur < end) {
-		duk_push_lstring(ctx, cur, (duk_size_t)(end - cur));
+	/* Append the trailing run (includes the last <nlen bytes that can't match). */
+	if (end > run_start) {
+		duk_push_lstring(ctx, run_start, (duk_size_t)(end - run_start));
 		pieces += 1;
 	}
 	duk_concat(ctx, pieces);

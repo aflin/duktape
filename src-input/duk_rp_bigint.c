@@ -1378,12 +1378,21 @@ static duk_ret_t duk__dataview_get_big(duk_context *ctx) {
     mp_int *r;
     int neg = 0;
 
-    off = (duk_size_t) duk_require_number(ctx, 0);
+    {
+        /* SECURITY (D2): reject NaN/Inf/negative/huge BEFORE the unsigned cast.
+         * A negative double becomes SIZE_MAX, and the additive `off + 8` test
+         * below would then wrap and pass, allowing an out-of-bounds read. */
+        double offd = duk_require_number(ctx, 0);
+        if (!(offd >= 0.0) || offd >= 9007199254740992.0) { /* >= 2^53 */
+            RP_RANGE_THROW(ctx, "DataView: offset out of bounds");
+        }
+        off = (duk_size_t) offd;
+    }
     duk_push_this(ctx);
     /* this is a DataView; access its underlying buffer via .buffer +
      * .byteOffset.  Simpler: read raw via buffer_data on the view. */
     data = duk_require_buffer_data(ctx, -1, &buflen);
-    if (off + 8 > buflen) {
+    if (buflen < 8 || off > buflen - 8) { /* D2: subtractive form, no additive wrap */
         RP_RANGE_THROW(ctx, "DataView: offset out of bounds");
     }
     for (i = 0; i < 8; i++) bytes[i] = data[off + i];
@@ -1431,7 +1440,7 @@ static duk_ret_t duk__dataview_set_big(duk_context *ctx) {
     duk_uint_t magic = (duk_uint_t) duk_get_current_magic(ctx);
     duk_bool_t is_signed = magic & 1;
     duk_bool_t little_endian = (duk_get_top(ctx) >= 3) ? duk_to_boolean(ctx, 2) : 0;
-    duk_size_t off = (duk_size_t) duk_require_number(ctx, 0);
+    duk_size_t off;
     duk_size_t buflen;
     duk_uint8_t *data;
     mp_int *bn;
@@ -1440,6 +1449,17 @@ static duk_ret_t duk__dataview_set_big(duk_context *ctx) {
     int i;
     int negative;
     (void) is_signed;
+
+    {
+        /* SECURITY (D2): validate the offset before the unsigned cast (see the
+         * get path) so a negative double cannot become SIZE_MAX and bypass the
+         * additive bounds test as an out-of-bounds WRITE. */
+        double offd = duk_require_number(ctx, 0);
+        if (!(offd >= 0.0) || offd >= 9007199254740992.0) {
+            RP_RANGE_THROW(ctx, "DataView: offset out of bounds");
+        }
+        off = (duk_size_t) offd;
+    }
 
     /* Coerce arg 1 to BigInt. */
     duk_get_global_string(ctx, "BigInt");
@@ -1450,7 +1470,7 @@ static duk_ret_t duk__dataview_set_big(duk_context *ctx) {
 
     duk_push_this(ctx);
     data = duk_require_buffer_data(ctx, -1, &buflen);
-    if (off + 8 > buflen) {
+    if (buflen < 8 || off > buflen - 8) { /* D2: subtractive form, no additive wrap */
         RP_RANGE_THROW(ctx, "DataView: offset out of bounds");
     }
 

@@ -63,6 +63,15 @@
 
 #if defined(DUK_RP_USE_WEAK_REFS)
 
+/* D6: holder-role cleanup is delegated to the object finalizer
+ * (duk__weak_kind_finalizer).  Without finalizer support every WeakRef/WeakMap/
+ * WeakSet/FinalizationRegistry constructor would throw at runtime AND collected
+ * holders would never be cleaned.  Fail the build loudly instead of shipping a
+ * silently-broken feature. */
+#if !defined(DUK_USE_FINALIZER_SUPPORT)
+#error "DUK_RP_USE_WEAK_REFS requires DUK_USE_FINALIZER_SUPPORT"
+#endif
+
 /* ------------------------------------------------------------------ *
  *  Subtype enum and hidden property keys                              *
  * ------------------------------------------------------------------ */
@@ -901,7 +910,6 @@ static duk_ret_t duk__wkmap_set(duk_context *ctx) {
 	duk_hobject *k;
 	duk_hobject *self;
 	duk_int_t idx;
-	duk_tval *tv_v;
 	duk_hthread *thr = (duk_hthread *) ctx;
 
 	duk_push_this(ctx);
@@ -913,15 +921,24 @@ static duk_ret_t duk__wkmap_set(duk_context *ctx) {
 	}
 	k = duk_get_hobject(ctx, 0);
 	self = duk_get_hobject(ctx, -1);
-	tv_v = duk_get_tval(ctx, 1);  /* value arg */
 	idx = duk__wk_ptrbuf_find(ctx, -1, STR_KEYS, k);
 	if (idx >= 0) {
-		duk__wk_tvalbuf_set(ctx, thr, -1, STR_VALUES, (duk_uint_t) idx, tv_v);
+		/* D5: copy the value tval onto the C stack (AFTER ptrbuf_find's internal
+		 * pushes) so a value-stack realloc can't dangle a raw tval pointer. */
+		duk_tval tv_copy = *duk_get_tval(ctx, 1);
+		duk__wk_tvalbuf_set(ctx, thr, -1, STR_VALUES, (duk_uint_t) idx, &tv_copy);
 	} else {
-		duk__wk_ptrbuf_append(ctx, -1, STR_KEYS, k);
-		duk__wk_tvalbuf_append(ctx, thr, -1, STR_VALUES, tv_v);
+		/* D4: register the back-table entry FIRST.  If it fails (OOM) nothing has
+		 * been appended to KEYS/VALUES yet, so no raw key pointer is left in the
+		 * mark-blind buffer without a back-table entry (which on key death would
+		 * never be pruned and could later match a reused address). */
 		if (!duk__wk_back_add(thr->heap, k, self, WK_MAP)) {
 			return duk_range_error(ctx, "WeakMap.set: out of memory");
+		}
+		duk__wk_ptrbuf_append(ctx, -1, STR_KEYS, k);
+		{
+			duk_tval tv_copy = *duk_get_tval(ctx, 1); /* D5 */
+			duk__wk_tvalbuf_append(ctx, thr, -1, STR_VALUES, &tv_copy);
 		}
 	}
 	return 1;
@@ -1030,10 +1047,11 @@ static duk_ret_t duk__wkset_add(duk_context *ctx) {
 	self = duk_get_hobject(ctx, -1);
 	idx = duk__wk_ptrbuf_find(ctx, -1, STR_KEYS, k);
 	if (idx < 0) {
-		duk__wk_ptrbuf_append(ctx, -1, STR_KEYS, k);
+		/* D4: back-table entry first, then append (see wkmap_set). */
 		if (!duk__wk_back_add(thr->heap, k, self, WK_SET)) {
 			return duk_range_error(ctx, "WeakSet.add: out of memory");
 		}
+		duk__wk_ptrbuf_append(ctx, -1, STR_KEYS, k);
 	}
 	return 1;  /* this */
 }
@@ -1126,6 +1144,14 @@ static duk_ret_t duk__finreg_register(duk_context *ctx) {
 	target = duk_get_hobject(ctx, 0);
 	self = duk_get_hobject(ctx, -1);
 
+	/* D4: register the back-table entry FIRST; if it fails (OOM) nothing has been
+	 * appended to the TARGETS pointer buffer yet, so no raw target pointer is left
+	 * without a back-table entry.  (HELD/TOKENS are JS arrays, not raw buffers, so
+	 * a short length there is a benign undefined, not an OOB.) */
+	if (!duk__wk_back_add(thr->heap, target, self, WK_FREG)) {
+		return duk_range_error(ctx, "FinalizationRegistry: out of memory");
+	}
+
 	duk__wk_ptrbuf_append(ctx, -1, STR_TARGETS, target);
 	count = duk__wk_ptrbuf_count(ctx, -1, STR_TARGETS);
 
@@ -1143,9 +1169,6 @@ static duk_ret_t duk__finreg_register(duk_context *ctx) {
 	duk_put_prop_index(ctx, -2, (duk_uarridx_t) (count - 1));
 	duk_pop(ctx);
 
-	if (!duk__wk_back_add(thr->heap, target, self, WK_FREG)) {
-		return duk_range_error(ctx, "FinalizationRegistry: out of memory");
-	}
 	return 0;
 }
 

@@ -43,14 +43,18 @@ static buf_encoding_t parse_encoding(const char *s)
     if (!s || !*s) return ENC_UTF8;
     /* case-insensitive comparison */
     char low[16];
-    size_t i;
-    for (i = 0; s[i] && i < sizeof(low) - 1; i++) {
+    size_t i, j = 0;
+    /* Fix (#1): use a SEPARATE write index so a stripped dash doesn't leave an
+     * uninitialized hole.  Previously 'utf-16le'/'ucs-2'/'utf-8' kept the dash's
+     * slot uninitialized, failed their strcmp, and silently fell back to UTF-8
+     * (decoding UTF-16 data as garbage). */
+    for (i = 0; s[i] && j < sizeof(low) - 1; i++) {
         char c = s[i];
         if (c >= 'A' && c <= 'Z') c += 32;
-        if (c == '-') continue;  /* tolerate 'utf-8' */
-        low[i] = c;
+        if (c == '-') continue;  /* strip dashes: 'utf-8' -> 'utf8' */
+        low[j++] = c;
     }
-    low[i] = '\0';
+    low[j] = '\0';
     if (strcmp(low, "utf8") == 0)       return ENC_UTF8;
     if (strcmp(low, "hex") == 0)        return ENC_HEX;
     if (strcmp(low, "base64") == 0)     return ENC_BASE64;
@@ -406,6 +410,15 @@ duk_ret_t duk_rp_buffer_from(duk_context *ctx)
                     RP_THROW(ctx, "Buffer.from: length out of range");
                 length = (duk_size_t)ld;
             }
+        }
+        /* D-TOCTOU: the duk_to_number coercions above can run a JS valueOf that
+         * resizes a dynamic-backed source buffer.  Re-fetch the pointer/size and
+         * re-clamp offset/length before sizing the copy.  No-op (identical) when
+         * the args have no side effects, i.e. for all ordinary code. */
+        if (duk_is_buffer_data(ctx, 0)) {
+            from_buf = (const char *)duk_get_buffer_data(ctx, 0, &from_sz);
+            if (offset > from_sz) offset = from_sz;
+            if (length > from_sz - offset) length = from_sz - offset;
         }
         duk_get_global_string(ctx, "Buffer");
         duk_push_number(ctx, (double)length);
@@ -939,9 +952,14 @@ static duk_ret_t buf_copy_bytes_from(duk_context *ctx)
     if (offset + length > src_elements)
         length = src_elements - offset;
 
-    /* Byte counts on the underlying buffer. */
-    int byte_offset = offset * bpe;
-    int byte_length = length * bpe;
+    /* Byte counts on the underlying buffer.  SECURITY (D1): compute in
+     * duk_size_t (64-bit), because BYTES_PER_ELEMENT is an overridable own
+     * property -- a hostile value made `offset*bpe` overflow the int math and
+     * bypass the bounds clamp, reaching the memcpy with a wild offset. offset
+     * is in [0,src_elements] and bpe,length < 2^31, so the 64-bit products and
+     * their sum cannot overflow. */
+    duk_size_t byte_offset = (duk_size_t)offset * (duk_size_t)bpe;
+    duk_size_t byte_length = (duk_size_t)length * (duk_size_t)bpe;
 
     duk_size_t buf_len;
     unsigned char *src = (unsigned char *)duk_get_buffer_data(ctx, 0, &buf_len);
@@ -950,13 +968,15 @@ static duk_ret_t buf_copy_bytes_from(duk_context *ctx)
     /* Account for the view's own byteOffset (e.g. typed array over a
      * larger ArrayBuffer).  duk_get_buffer_data on a typed array already
      * returns a pointer + length restricted to that view, so byteOffset
-     * is implicit -- we add source-level offset on top. */
-    if (byte_offset + byte_length > (int)buf_len)
-        byte_length = (int)buf_len - byte_offset;
-    if (byte_length < 0) byte_length = 0;
+     * is implicit -- we add source-level offset on top.  Check off>=len first
+     * so the subtraction below cannot underflow. */
+    if (byte_offset >= buf_len)
+        byte_length = 0;
+    else if (byte_offset + byte_length > buf_len)
+        byte_length = buf_len - byte_offset;
 
     duk_get_global_string(ctx, "Buffer");
-    duk_push_int(ctx, byte_length);
+    duk_push_int(ctx, (duk_int_t)byte_length);
     duk_new(ctx, 1);
     unsigned char *dst = (unsigned char *)duk_get_buffer_data(ctx, -1, NULL);
     if (byte_length > 0) memcpy(dst, src + byte_offset, (size_t)byte_length);

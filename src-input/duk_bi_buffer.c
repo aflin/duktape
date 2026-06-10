@@ -1337,6 +1337,23 @@ DUK_INTERNAL duk_ret_t duk_bi_buffer_compare_shared(duk_hthread *thr) {
 		source_off = (source_len > 0) ? (duk_size_t) source_start : 0;
 		target_off = (target_len > 0) ? (duk_size_t) target_start : 0;
 
+		/* D-TOCTOU: the duk_to_int coercions above can run a JS valueOf that
+		 * resizes/detaches a dynamic-backed buffer; the cached lengths used for
+		 * validation may now be stale.  Re-validate the slices and clamp the
+		 * ranges to the CURRENT view length before reading.  No-op (identical)
+		 * for ordinary side-effect-free arguments. */
+		if (!DUK_HBUFOBJ_VALID_SLICE(h_bufarg1) || !DUK_HBUFOBJ_VALID_SLICE(h_bufarg2)) {
+			source_off = target_off = 0;
+			source_len = target_len = 0;
+		} else {
+			duk_size_t avail1 = h_bufarg1->length;
+			duk_size_t avail2 = h_bufarg2->length;
+			if (source_off > avail1) source_off = avail1;
+			if (source_len > avail1 - source_off) source_len = avail1 - source_off;
+			if (target_off > avail2) target_off = avail2;
+			if (target_len > avail2 - target_off) target_len = avail2 - target_off;
+		}
+
 		comp_res = duk_js_data_compare(
 		    (const duk_uint8_t *) DUK_HBUFFER_GET_DATA_PTR(thr->heap, h_bufarg1->buf) + h_bufarg1->offset + source_off,
 		    (const duk_uint8_t *) DUK_HBUFFER_GET_DATA_PTR(thr->heap, h_bufarg2->buf) + h_bufarg2->offset + target_off,

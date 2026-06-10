@@ -241,6 +241,23 @@ static duk_ret_t map_iter_next(duk_context *ctx)
     duk_size_t len = duk_get_length(ctx, -1);
     duk_idx_t keys_idx = duk_normalize_index(ctx, -1);
 
+    /* Fix (#2): the iterator snapshots ITER_KEYS at creation; entries deleted
+     * from the live store since then must be SKIPPED (spec) rather than throwing
+     * a TypeError on store[ks]==undefined.  Advance idx past such tombstones.
+     * Stack-neutral: leaves [iter, keys_array] unchanged. */
+    {
+        duk_push_this(ctx);
+        duk_get_prop_string(ctx, -1, MAP_STORE);
+        while (idx < (duk_uarridx_t)len) {
+            duk_get_prop_index(ctx, keys_idx, idx);
+            duk_get_prop_string(ctx, -2, duk_get_string(ctx, -1));
+            if (!duk_is_undefined(ctx, -1)) { duk_pop_2(ctx); break; }
+            duk_pop_2(ctx);
+            idx++;
+        }
+        duk_pop_2(ctx);
+    }
+
     duk_push_object(ctx); /* result */
 
     if (idx >= (duk_uarridx_t)len) {

@@ -48,11 +48,12 @@ static int duk__rp_compare(duk_context *ctx, duk_idx_t idx1, duk_idx_t idx2) {
 }
 
 static duk_ret_t duk__rp_array_includes(duk_context *ctx) {
-	int i = 0, len;
+	/* widen to duk_uarridx_t (matches find/findIndex) so a length up to 2^32-1
+	 * is not truncated by a signed int.  fromIndex keeps its existing clamp. */
+	duk_uarridx_t i = 0, len;
 	duk_push_this(ctx);
-	len = duk_get_length(ctx, -1);
-	if (duk_is_number(ctx, 1)) i = duk_get_int(ctx, 1);
-	if (i < 0) i = 0;
+	len = (duk_uarridx_t) duk_get_length(ctx, -1);
+	if (duk_is_number(ctx, 1)) { duk_int_t fi = duk_get_int(ctx, 1); if (fi > 0) i = (duk_uarridx_t) fi; }
 	for (; i < len; i++) {
 		duk_get_prop_index(ctx, -1, (duk_uarridx_t) i);
 		if (duk__rp_compare(ctx, 0, -1)) {
@@ -240,26 +241,20 @@ static duk_ret_t duk__rp_array_of(duk_context *ctx) {
 	return 1;
 }
 
-static void duk__rp_flat_recursive(duk_context *ctx, duk_idx_t src_idx, duk_idx_t dst_idx,
-                                   duk_uarridx_t *out_i, int depth) {
-	duk_size_t len = duk_get_length(ctx, src_idx);
-	for (duk_uarridx_t i = 0; i < (duk_uarridx_t) len; i++) {
-		duk_get_prop_index(ctx, src_idx, i);
-		if (depth > 0 && duk_is_array(ctx, -1)) {
-			duk_idx_t sub_idx = duk_normalize_index(ctx, -1);
-			duk__rp_flat_recursive(ctx, sub_idx, dst_idx, out_i, depth - 1);
-			duk_pop(ctx);
-		} else {
-			duk_put_prop_index(ctx, dst_idx, (*out_i)++);
-		}
-	}
-}
+/* Iterative flatten (was C-recursive -> stack-overflow SIGSEGV on deeply nested
+ * arrays, reachable on small-stack worker threads).  An explicit frame stack
+ * does the same depth-first, order-preserving traversal; output is identical to
+ * the recursive version for every input.  Each active frame's source array stays
+ * on the duktape value stack, so extreme nesting hits the valstack limit as a
+ * catchable RangeError instead of crashing. */
+typedef struct { duk_idx_t arr_idx; duk_uarridx_t i; duk_size_t len; int depth; } duk__flat_frame;
 
 static duk_ret_t duk__rp_array_flat(duk_context *ctx) {
 	int depth = 1;
 	if (duk_is_number(ctx, 0)) {
 		double d = duk_get_number(ctx, 0);
 		if (d > 1000000.0) depth = 1000000;
+		else if (d < 0.0) depth = 0;
 		else depth = (int) d;
 	}
 	duk_push_this(ctx);
@@ -267,8 +262,64 @@ static duk_ret_t duk__rp_array_flat(duk_context *ctx) {
 	duk_push_array(ctx);
 	duk_idx_t dst_idx = duk_normalize_index(ctx, -1);
 	duk_uarridx_t out_i = 0;
-	duk__rp_flat_recursive(ctx, src_idx, dst_idx, &out_i, depth);
-	return 1;
+
+	duk__flat_frame stackbuf[64];
+	duk__flat_frame *frames = stackbuf;
+	duk_size_t fcap = 64, fn = 0;
+
+	frames[fn].arr_idx = src_idx;
+	frames[fn].i = 0;
+	frames[fn].len = duk_get_length(ctx, src_idx);
+	frames[fn].depth = depth;
+	fn++;
+
+	while (fn > 0) {
+		duk__flat_frame *f = &frames[fn - 1];
+		/* Native functions start with only a small reserved value stack and it
+		 * does not auto-grow; reserve room for this iteration's pushes (the
+		 * element, and a child array kept while we descend).  Growth is bounded
+		 * by the valstack limit -> a catchable RangeError at extreme depth, never
+		 * a C-stack SIGSEGV. */
+		duk_require_stack(ctx, 4);
+		if (f->i >= (duk_uarridx_t) f->len) {
+			fn--;
+			if (fn > 0) duk_pop(ctx); /* pop this child array; keep root (this) */
+			continue;
+		}
+		duk_get_prop_index(ctx, f->arr_idx, f->i);
+		f->i++;
+		if (f->depth > 0 && duk_is_array(ctx, -1)) {
+			duk_idx_t sub_idx = duk_normalize_index(ctx, -1);
+			int child_depth = f->depth - 1; /* capture BEFORE any frames realloc invalidates f */
+			if (fn == fcap) {
+				duk_size_t ncap = fcap * 2;
+				duk__flat_frame *nf;
+				if (frames == stackbuf) {
+					nf = (duk__flat_frame *) malloc(ncap * sizeof(duk__flat_frame));
+					if (nf) memcpy(nf, frames, fn * sizeof(duk__flat_frame));
+				} else {
+					nf = (duk__flat_frame *) realloc(frames, ncap * sizeof(duk__flat_frame));
+				}
+				if (!nf) {
+					if (frames != stackbuf) free(frames);
+					(void) duk_range_error(ctx, "Array.flat: nesting too deep");
+				}
+				frames = nf;
+				fcap = ncap;
+				f = NULL; /* f now dangles; must not be used again this iteration */
+			}
+			frames[fn].arr_idx = sub_idx;
+			frames[fn].i = 0;
+			frames[fn].len = duk_get_length(ctx, sub_idx);
+			frames[fn].depth = child_depth;
+			fn++;
+			/* leave sub array on the value stack as this frame's array */
+		} else {
+			duk_put_prop_index(ctx, dst_idx, out_i++); /* consumes the element */
+		}
+	}
+	if (frames != stackbuf) free(frames);
+	return 1; /* dst on top of value stack */
 }
 
 static duk_ret_t duk__rp_array_flat_map(duk_context *ctx) {

@@ -166,8 +166,8 @@ static void duk__pfulfill_promise(duk_context *ctx, duk_idx_t promise_idx,
                                    duk_idx_t value_idx);
 static void duk__pmark_handled(duk_context *ctx, duk_idx_t promise_idx);
 
-static duk_ret_t duk__pmt_reaction_run(duk_context *ctx, duk_rp_microtask *m);
-static duk_ret_t duk__pmt_thenable_run(duk_context *ctx, duk_rp_microtask *m);
+static duk_ret_t duk__pmt_reaction_run(duk_context *ctx, void *udata);
+static duk_ret_t duk__pmt_thenable_run(duk_context *ctx, void *udata);
 
 /* ------------------------------------------------------------------ *
  *  Promise brand check                                                *
@@ -860,7 +860,8 @@ static const char duk__promise_any_src[] =
  *  Microtask job runners                                              *
  * ------------------------------------------------------------------ */
 
-static duk_ret_t duk__pmt_reaction_run(duk_context *ctx, duk_rp_microtask *m) {
+static duk_ret_t duk__pmt_reaction_run(duk_context *ctx, void *udata) {
+	duk_rp_microtask *m = (duk_rp_microtask *) udata; /* D9: passed as duk_safe_call udata */
 	duk_idx_t base_top = duk_get_top(ctx);
 	duk_int_t pcall_rc;
 	duk_hobject *cap;
@@ -896,7 +897,8 @@ static duk_ret_t duk__pmt_reaction_run(duk_context *ctx, duk_rp_microtask *m) {
 	return 0;
 }
 
-static duk_ret_t duk__pmt_thenable_run(duk_context *ctx, duk_rp_microtask *m) {
+static duk_ret_t duk__pmt_thenable_run(duk_context *ctx, void *udata) {
+	duk_rp_microtask *m = (duk_rp_microtask *) udata; /* D9: passed as duk_safe_call udata */
 	duk_idx_t base_top = duk_get_top(ctx);
 	duk_idx_t promise_idx;
 
@@ -953,10 +955,16 @@ DUK_EXTERNAL void duk_rp_microtask_drain(duk_context *ctx) {
 		 * enqueue path uses q->tail->next, which would dangle if m had
 		 * already been dequeued+freed.
 		 */
+		/* D9: run via duk_safe_call so an OOM-throw during the (unprotected)
+		 * setup allocations is caught here instead of longjmping out through the
+		 * libevent C frame that drives the drain (no setjmp target -> crash).  On
+		 * such a failure the microtask is abandoned (the promise stays unsettled,
+		 * as in the pre-existing enqueue-OOM path) and the drain continues.
+		 * Normal operation is unaffected. */
 		if (m->type == MT_REACTION) {
-			duk__pmt_reaction_run(ctx, m);
+			(void) duk_safe_call(ctx, duk__pmt_reaction_run, m, 0, 0);
 		} else if (m->type == MT_THENABLE) {
-			duk__pmt_thenable_run(ctx, m);
+			(void) duk_safe_call(ctx, duk__pmt_thenable_run, m, 0, 0);
 		}
 		/* Now safe to unlink and release. */
 		q->head = m->next;
