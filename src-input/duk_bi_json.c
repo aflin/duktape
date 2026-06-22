@@ -2179,7 +2179,7 @@ DUK_LOCAL duk_bool_t duk__json_enc_value(duk_json_enc_ctx *js_ctx, duk_idx_t idx
 #if defined(DUK_RP_USE_BIGINT)
 		if (DUK_UNLIKELY(DUK_HOBJECT_GET_CLASS_NUMBER(h) == DUK_HOBJECT_CLASS_BIGINT)) {
 			DUK_ERROR_TYPE(js_ctx->thr, "Do not know how to serialize a BigInt");
-			DUK_WO_NORETURN(return;);
+			DUK_WO_NORETURN(return 0;);  /* unreachable; matches duk_bool_t return type */
 		}
 #endif
 

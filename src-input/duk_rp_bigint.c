@@ -638,17 +638,6 @@ static mp_int *duk__bigint_coerce_for_eq(duk_context *ctx, duk_tval *tv) {
     return NULL;
 }
 
-/* Push a primitive coerced from `tv` via ToPrimitive(NUMBER).  Returns
- * 1 if the result is a BigInt, 0 otherwise.  Result is on the stack
- * top either way; caller is responsible for popping. */
-static duk_bool_t duk__push_primitive_for_arith(duk_context *ctx, duk_tval *tv) {
-    duk_push_tval(ctx, tv);
-    if (duk_get_type(ctx, -1) == DUK_TYPE_OBJECT && !duk_rp_is_bigint(ctx, -1)) {
-        duk_to_primitive(ctx, -1, DUK_HINT_NUMBER);
-    }
-    return duk_rp_is_bigint(ctx, -1) ? 1 : 0;
-}
-
 /* "Try" arith binop dispatch.  Coerces both operands via ToPrimitive
  * (NUMBER), then:
  *   - both BigInt: do BigInt op, return 1.
@@ -809,7 +798,9 @@ DUK_INTERNAL duk_bool_t duk_rp_bigint_try_bitwise(duk_hthread *thr,
         if (mp_isneg(b) == MP_YES) {
             /* Re-dispatch as a right shift by |b|. */
             mp_int neg_b;
-            mp_init(&neg_b);
+            if (mp_init(&neg_b) != MP_OKAY) {
+                RP_THROW(ctx, "BigInt: mp_init failed");
+            }
             if (mp_neg(b, &neg_b) != MP_OKAY) {
                 mp_clear(&neg_b);
                 RP_THROW(ctx, "BigInt: mp_neg failed");
@@ -842,7 +833,9 @@ DUK_INTERNAL duk_bool_t duk_rp_bigint_try_bitwise(duk_hthread *thr,
         if (mp_isneg(b) == MP_YES) {
             /* x >> -n is x << |n|; symmetric to BASL handling. */
             mp_int neg_b;
-            mp_init(&neg_b);
+            if (mp_init(&neg_b) != MP_OKAY) {
+                RP_THROW(ctx, "BigInt: mp_init failed");
+            }
             if (mp_neg(b, &neg_b) != MP_OKAY) {
                 mp_clear(&neg_b);
                 RP_THROW(ctx, "BigInt: mp_neg failed");
@@ -1496,20 +1489,6 @@ static duk_ret_t duk__dataview_set_big(duk_context *ctx) {
 }
 
 /* ------------------------------------------------------------------ */
-
-static const duk_function_list_entry duk__bigint_proto_funcs[] = {
-    { "toString",        duk__bigint_proto_toString,        DUK_VARARGS },
-    { "toLocaleString",  duk__bigint_proto_toLocaleString,  DUK_VARARGS },
-    { "valueOf",         duk__bigint_proto_valueOf,         0 },
-    { NULL, NULL, 0 }
-};
-
-static const duk_function_list_entry duk__bigint_ctor_funcs[] = {
-    { "isBigInt", duk__bigint_static_isBigInt, 1 },
-    { "asIntN",   duk__bigint_static_asIntN,   2 },
-    { "asUintN",  duk__bigint_static_asUintN,  2 },
-    { NULL, NULL, 0 }
-};
 
 /* Install a method on a target object with descriptor {writable:true,
  * enumerable:false, configurable:true} (the standard JS attribute set

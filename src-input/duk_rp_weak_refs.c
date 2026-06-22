@@ -487,20 +487,6 @@ static duk_int_t duk__wk_ptrbuf_find(duk_context *ctx, duk_idx_t holder_idx,
  *  Callers MUST DECREF before overwriting or shrinking a slot.        *
  * ------------------------------------------------------------------ */
 
-static duk_uint_t duk__wk_tvalbuf_count(duk_context *ctx,
-                                         duk_idx_t holder_idx,
-                                         const char *key) {
-	duk_size_t sz;
-	duk_get_prop_string(ctx, holder_idx, key);
-	if (!duk_is_buffer(ctx, -1)) {
-		duk_pop(ctx);
-		return 0;
-	}
-	duk_get_buffer(ctx, -1, &sz);
-	duk_pop(ctx);
-	return (duk_uint_t) (sz / sizeof(duk_tval));
-}
-
 /* Push the buffer on the stack and return its base pointer cast to
  * duk_tval*.  Caller must duk_pop the buffer when done.  Returns NULL
  * on missing/non-buffer prop. */
