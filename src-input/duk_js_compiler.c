@@ -5741,6 +5741,7 @@ DUK_LOCAL void duk__parse_switch_stmt(duk_compiler_ctx *comp_ctx, duk_ivalue *re
 			num_stmts++;
 			duk__parse_stmt(comp_ctx, res, 0 /*allow_source_elem*/);
 		}
+		DUK_UNREF(num_stmts); /* counted but not currently consumed */
 
 		/* fall-through jump to next code of next case (backpatched) */
 		pc_prevstmt = duk__emit_jump_empty(comp_ctx);
