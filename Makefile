@@ -36,7 +36,13 @@ NODE := $(shell { command -v nodejs || command -v node; } 2>/dev/null)
 WGET := $(shell command -v wget 2>/dev/null)
 JAVA := $(shell command -v java 2>/dev/null)
 VALGRIND := $(shell command -v valgrind 2>/dev/null)
-PYTHON := $(shell { command -v python2 || command -v python; } 2>/dev/null)
+# The tooling was ported from upstream's Python 2 to Python 3 (see
+# README.rst), so python3 is preferred and looked for first.  With
+# only python2/python searched, PYTHON came out EMPTY on a system
+# that has just python3, and every rule then invoked tools/*.py
+# directly -- which fails with 'Permission denied' because those
+# files are not executable.
+PYTHON := $(shell { command -v python3 || command -v python2 || command -v python; } 2>/dev/null)
 
 # Scrape version from the public header; convert from e.g. 10203 -> '1.2.3'
 DUK_VERSION := $(shell cat src-input/duktape.h.in | grep 'define ' | grep DUK_VERSION | tr -s ' ' ' ' | cut -d ' ' -f 3 | tr -d 'L')

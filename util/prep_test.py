@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 #  Prepare an ECMAScript or API testcase file for execution.
 #
@@ -25,15 +25,24 @@ import optparse
 
 re_include = re.compile(r'^/\*@include\s(.*?)\s*@\*/$')
 
+# Python 3: read and write bytes, but hand the rest of this script a str
+# so that the line splitting and joining below work.
+#
+# latin-1 is deliberate, not a guess about the content.  It maps every
+# byte 0x00-0xFF to the codepoint of the same value and back, so the
+# round trip is exact for ANY input -- which matters here, because the
+# testcase corpus contains files with deliberately malformed UTF-8 in
+# them.  Decoding as utf-8 would throw on exactly the tests that exist
+# to check how invalid input is handled.
 def readFile(fn):
     f = open(fn, 'rb')
     data = f.read()
     f.close()
-    return data
+    return data.decode('latin-1')
 
 def writeFile(fn, data):
     f = open(fn, 'wb')
-    f.write(data)
+    f.write(data.encode('latin-1') if isinstance(data, str) else data)
     f.close()
 
 def stripTrailingNewlines(data):

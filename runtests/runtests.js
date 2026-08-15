@@ -325,7 +325,12 @@ function executeTest(options, callback) {
         args.push('--output', tempInput)
         args.push('--prologue', tempPrologue)
 
-        child_process.execFile('python2', args, {}, compileDone)
+        /* python3: the tooling in this fork was ported from upstream's
+         * Python 2 (see README.rst), and util/prep_test.py parses as
+         * python3.  Spawning 'python2' made EVERY testcase fail during
+         * preparation with ENOENT on a system that has only python3 --
+         * 1146 of 1161 "failures" that never reached the engine. */
+        child_process.execFile('python3', args, {}, compileDone)
     }
 
     if (options.engine.name === 'api') {
